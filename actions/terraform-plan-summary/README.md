@@ -36,7 +36,7 @@ Se isto fosse dividido num "resuma este texto" genérico, um consumidor poderia 
 - name: Resumo do plano por IA
   if: steps.plan.outcome == 'success'
   continue-on-error: true          # o resumo é informativo, nunca um gate
-  uses: fiap-tech-challenge-devops/reusable-workflows/actions/terraform-plan-summary@v1.0.0
+  uses: fiap-tech-challenge-devops/reusable-workflows/actions/terraform-plan-summary@v1.1.1
   with:
     api-key: ${{ secrets.OPENAI_API_KEY }}
     working-directory: infra

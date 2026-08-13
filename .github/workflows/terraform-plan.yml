@@ -159,7 +159,7 @@ jobs:
         id: resumo_ia
         if: inputs.summary-stage != '' && matrix.stage == inputs.summary-stage && steps.plan.outcome == 'success'
         continue-on-error: true
-        uses: fiap-tech-challenge-devops/reusable-workflows/actions/terraform-plan-summary@v1.0.0
+        uses: fiap-tech-challenge-devops/reusable-workflows/actions/terraform-plan-summary@v1.1.1
         with:
           api-key: ${{ secrets.openai-api-key }}
           working-directory: ${{ matrix.stage }}

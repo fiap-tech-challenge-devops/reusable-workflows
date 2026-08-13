@@ -12,13 +12,13 @@ A ordem entre stages vive no caller, com `needs:`:
 ```yaml
 jobs:
   infra:
-    uses: .../terraform-apply.yml@v1.0.0
+    uses: .../terraform-apply.yml@v1.1.1
     with: { stage: infra, state-bucket-prefix: meu-projeto-tfstate }
     secrets: { aws-oidc-role-arn: "${{ secrets.AWS_OIDC_ROLE_ARN }}" }
 
   addons:
     needs: infra
-    uses: .../terraform-apply.yml@v1.0.0
+    uses: .../terraform-apply.yml@v1.1.1
     with: { stage: addons, state-bucket-prefix: meu-projeto-tfstate }
     secrets: { aws-oidc-role-arn: "${{ secrets.AWS_OIDC_ROLE_ARN }}" }
 ```

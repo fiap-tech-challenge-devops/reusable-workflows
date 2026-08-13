@@ -37,7 +37,7 @@ jobs:
   # não há PR nem plano para ler antes de um destroy.
   addons:
     needs: guard
-    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-destroy.yml@v1.0.0
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-destroy.yml@v1.1.1
     with:
       stage: addons
       state-bucket-prefix: togglemaster-iac-tfstate
@@ -51,7 +51,7 @@ jobs:
 
   infra:
     needs: addons
-    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-destroy.yml@v1.0.0
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-destroy.yml@v1.1.1
     with:
       stage: infra
       state-bucket-prefix: togglemaster-iac-tfstate

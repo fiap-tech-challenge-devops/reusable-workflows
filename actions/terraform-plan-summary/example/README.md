@@ -15,7 +15,7 @@ Então este arquivo é referência para copiar, não algo que se possa rodar iso
 | `infra` | o diretório do seu Terraform |
 | `AWS_OIDC_ROLE_ARN` | o nome do seu secret de role |
 | `us-east-1` | sua região |
-| `@v1.0.0` | a tag que você quer fixar |
+| `@v1.1.1` | a tag que você quer fixar |
 
 ## Os dois pontos fáceis de errar
 

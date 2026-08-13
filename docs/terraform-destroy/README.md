@@ -12,12 +12,12 @@ Um stage por chamada, encadeado com `needs:` no caller — mesma forma do [`terr
 ```yaml
 jobs:
   addons:
-    uses: .../terraform-destroy.yml@v1.0.0
+    uses: .../terraform-destroy.yml@v1.1.1
     with: { stage: addons, eks-cleanup: true, ... }
 
   infra:
     needs: addons
-    uses: .../terraform-destroy.yml@v1.0.0
+    uses: .../terraform-destroy.yml@v1.1.1
     with: { stage: infra, ... }
 ```
 

@@ -27,7 +27,7 @@ concurrency:
 
 jobs:
   infra:
-    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-apply.yml@v1.0.0
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-apply.yml@v1.1.1
     with:
       stage: infra
       state-bucket-prefix: togglemaster-iac-tfstate
@@ -40,7 +40,7 @@ jobs:
   # addons falharia — ele lê do SSM parâmetros que o infra ainda não criou.
   addons:
     needs: infra
-    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-apply.yml@v1.0.0
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-apply.yml@v1.1.1
     with:
       stage: addons
       state-bucket-prefix: togglemaster-iac-tfstate

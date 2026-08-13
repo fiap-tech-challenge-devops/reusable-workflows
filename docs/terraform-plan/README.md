@@ -13,7 +13,7 @@ Exemplo: [`example/caller.yml`](example/caller.yml)
 jobs:
   iac:
     name: iac
-    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-plan.yml@v1.0.0
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-plan.yml@v1.1.1
     with:
       stages: '[{"stage":"infra","required":true},{"stage":"addons","required":false}]'
       summary-stage: infra
