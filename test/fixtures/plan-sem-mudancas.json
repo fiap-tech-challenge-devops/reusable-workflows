@@ -1,0 +1,25 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "module.vpc.aws_vpc.this",
+      "type": "aws_vpc",
+      "name": "this",
+      "change": {
+        "actions": ["no-op"],
+        "before": { "cidr_block": "CANARIO-CIDR" },
+        "after": { "cidr_block": "CANARIO-CIDR" },
+        "after_unknown": {},
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "output_changes": {
+    "inalterado": {
+      "actions": ["no-op"],
+      "before": true,
+      "after": true,
+      "after_unknown": false
+    }
+  }
+}

@@ -1,0 +1,87 @@
+name: "Terraform plan summary"
+description: >
+  Resume um plano do Terraform com IA, enviando apenas a ESTRUTURA do plano —
+  endereços, tipos, ações e nomes de atributos. Nenhum valor sai da máquina.
+
+# Precisa rodar no MESMO job que gerou o plano. É por isso que isto é um
+# composite action e não um reusable workflow: o plano binário nunca deve virar
+# artifact, porque "terraform show -json" NÃO redige valores sensíveis — a senha
+# aparece em texto claro ao lado do próprio "sensitive": true. Um artifact é
+# baixável por qualquer pessoa com leitura no repositório.
+
+inputs:
+  api-key:
+    description: "Chave da API da OpenAI. Ausente ou vazia, o action sai limpo e não escreve resumo."
+    required: false
+    default: ""
+  working-directory:
+    description: "Diretório onde está o plano binário e onde o resumo será escrito."
+    required: false
+    default: "."
+  plan-file:
+    description: "Nome do plano binário gerado por 'terraform plan -out=...'."
+    required: false
+    default: "tfplan"
+  output-file:
+    description: "Arquivo Markdown do resumo, relativo ao working-directory."
+    required: false
+    default: "resumo-ia.md"
+  model:
+    description: "Modelo da OpenAI."
+    required: false
+    default: "gpt-5.6-terra"
+  label:
+    description: "Rótulo opcional do plano (ex.: nome do stage), incluído no prompt como contexto."
+    required: false
+    default: ""
+  instructions:
+    description: "Sobrescreve o prompt embutido. Use para trocar de idioma ou de foco sem alterar o action."
+    required: false
+    default: >-
+      Você resume planos do Terraform para quem vai revisar um pull request de
+      infraestrutura. Escreva em português do Brasil, em Markdown, sem cabeçalho
+      de nível 1 ou 2. Você recebe apenas a ESTRUTURA do plano: endereços,
+      tipos, ações e nomes de atributos — nunca os valores. Não invente valores
+      nem especule sobre o que eles são. Comece por uma frase única dizendo o
+      que este plano faz. Depois, no máximo cinco bullets cobrindo: o que é
+      criado, alterado ou destruído de mais relevante; qualquer substituição
+      (delete+create) e por que ela chama atenção; e o que merece atenção do
+      revisor — perda de dados, indisponibilidade, mudança em rede ou IAM.
+      Agrupe recursos repetitivos em vez de listar um por um. Se nada for
+      arriscado, diga isso em vez de inventar risco.
+  footer:
+    description: "Rodapé acrescentado apenas quando o texto veio mesmo do modelo."
+    required: false
+    default: "_Resumo gerado por IA a partir da estrutura do plano. O plano abaixo é a fonte da verdade._"
+  no-changes-message:
+    description: "Mensagem estática usada quando o plano não muda nada. Não passa pela API."
+    required: false
+    default: "**Nenhuma alteração.** O plano não cria, altera nem destrói recurso algum — a infraestrutura já corresponde à configuração."
+
+outputs:
+  summary-file:
+    description: "Caminho do resumo escrito, ou vazio se nenhum foi produzido."
+    value: ${{ steps.resumo.outputs.summary-file }}
+  has-changes:
+    description: "'true' se o plano altera algo, 'false' se não."
+    value: ${{ steps.resumo.outputs.has-changes }}
+
+runs:
+  using: composite
+  steps:
+    - id: resumo
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        OPENAI_API_KEY: ${{ inputs.api-key }}
+        PLAN_FILE: ${{ inputs.plan-file }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+        MODEL: ${{ inputs.model }}
+        LABEL: ${{ inputs.label }}
+        INSTRUCTIONS: ${{ inputs.instructions }}
+        FOOTER: ${{ inputs.footer }}
+        NO_CHANGES_MESSAGE: ${{ inputs.no-changes-message }}
+      # Invocado via "bash <caminho>" em vez de executado direto: o bit de
+      # execução não sobrevive a um checkout feito no Windows, e o job falharia
+      # com "permission denied" só nesses runners.
+      run: bash "${GITHUB_ACTION_PATH}/summarize.sh"

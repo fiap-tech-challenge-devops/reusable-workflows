@@ -1,0 +1,99 @@
+{
+  "format_version": "1.2",
+  "resource_changes": [
+    {
+      "address": "module.rds_flags.aws_db_instance.this",
+      "type": "aws_db_instance",
+      "name": "this",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "identifier": "CANARIO-IDENTIFIER",
+          "password": "CANARIO-SENHA-RDS",
+          "engine": "postgres",
+          "instance_class": "db.t4g.micro"
+        },
+        "after_unknown": { "arn": true, "endpoint": true },
+        "after_sensitive": { "password": true }
+      }
+    },
+    {
+      "address": "aws_sqs_queue.evaluation",
+      "type": "aws_sqs_queue",
+      "name": "evaluation",
+      "change": {
+        "actions": ["update"],
+        "before": {
+          "name": "CANARIO-FILA",
+          "visibility_timeout_seconds": 30,
+          "tags": { "env": "prod" }
+        },
+        "after": {
+          "name": "CANARIO-FILA",
+          "visibility_timeout_seconds": 60,
+          "tags": { "env": "prod" }
+        },
+        "after_unknown": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_dynamodb_table.analytics",
+      "type": "aws_dynamodb_table",
+      "name": "analytics",
+      "change": {
+        "actions": ["delete", "create"],
+        "before": { "name": "CANARIO-TABELA", "billing_mode": "PROVISIONED" },
+        "after": { "name": "CANARIO-TABELA", "billing_mode": "PAY_PER_REQUEST" },
+        "after_unknown": { "arn": true },
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "aws_ssm_parameter.velho",
+      "type": "aws_ssm_parameter",
+      "name": "velho",
+      "change": {
+        "actions": ["delete"],
+        "before": { "name": "/x/velho", "value": "CANARIO-SEGREDO-SSM" },
+        "after": null,
+        "after_unknown": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "module.vpc.aws_vpc.this",
+      "type": "aws_vpc",
+      "name": "this",
+      "change": {
+        "actions": ["no-op"],
+        "before": { "cidr_block": "CANARIO-CIDR" },
+        "after": { "cidr_block": "CANARIO-CIDR" },
+        "after_unknown": {},
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "output_changes": {
+    "cluster_name": {
+      "actions": ["create"],
+      "before": null,
+      "after": "CANARIO-CLUSTER",
+      "after_unknown": false
+    },
+    "db_password": {
+      "actions": ["create"],
+      "before": null,
+      "after": "CANARIO-SENHA-OUTPUT",
+      "after_unknown": false,
+      "after_sensitive": true
+    },
+    "inalterado": {
+      "actions": ["no-op"],
+      "before": true,
+      "after": true,
+      "after_unknown": false
+    }
+  }
+}

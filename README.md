@@ -1,8 +1,21 @@
 # reusable-workflows
 
-Workflows reutilizáveis do GitHub Actions, chamados pelas esteiras dos cinco microsserviços do **ToggleMaster**.
+CI/CD compartilhado do **ToggleMaster**: workflows reutilizáveis chamados pelas esteiras dos cinco microsserviços e do repositório de infraestrutura, mais os composite actions que essas esteiras usam por dentro.
 
 Os cinco serviços executam o mesmo pipeline — build, lint, análise de segurança, imagem e promoção — mudando apenas a linguagem. Manter isso em cinco repositórios significaria corrigir o mesmo bug cinco vezes. Aqui a definição vive uma vez; cada serviço tem um arquivo de poucas linhas que a chama.
+
+## Workflow ou action?
+
+As duas formas existem aqui porque resolvem problemas diferentes, e a escolha nem sempre é de gosto:
+
+| | Reusable workflow | Composite action |
+|---|---|---|
+| Unidade | um ou mais **jobs** | um ou mais **steps** |
+| Runner | próprio, isolado do chamador | o **mesmo** do job que o chama |
+| Enxerga arquivos do chamador | não | sim |
+| Chamado com | `uses:` no nível do job | `uses:` no nível do step |
+
+A regra prática: se a peça precisa de arquivos produzidos por steps vizinhos, **tem** de ser action. Foi o que definiu o [`terraform-plan-summary`](actions/terraform-plan-summary/) — ele lê o plano binário deixado pelo step anterior, e esse arquivo não pode virar artifact porque contém valores sensíveis em texto claro.
 
 Faz parte de um conjunto de quatro repositórios:
 
@@ -13,14 +26,43 @@ Faz parte de um conjunto de quatro repositórios:
 | [`togglemaster-gitops`](https://github.com/fiap-tech-challenge-devops/togglemaster-gitops) | Manifests Helm consumidos pelo Argo CD |
 | **`reusable-workflows`** | **Workflows de CI/CD compartilhados (este repo)** |
 
-## Estrutura prevista
+## Estrutura
 
 ```
 .github/workflows/
-├── go-ci.yaml        # CI dos serviços em Go (auth, evaluation)
-├── python-ci.yaml    # CI dos serviços em Python (flag, targeting, analytics)
-└── cd.yaml           # promoção da imagem no repositório GitOps
+├── terraform-plan.yml   # esteira de plano de IaC (pronta)
+├── go-ci.yaml           # CI dos serviços em Go (auth, evaluation)        — previsto
+├── python-ci.yaml       # CI dos serviços em Python (flag, targeting, analytics) — previsto
+└── cd.yaml              # promoção da imagem no repositório GitOps        — previsto
+
+actions/
+└── terraform-plan-summary/   # resumo de plano por IA, sem vazar valores
+
+test/
+└── run-local.sh         # testa os actions sem rede e sem AWS
 ```
+
+## Esteira de IaC
+
+O [`terraform-plan.yml`](.github/workflows/terraform-plan.yml) roda validação de sintaxe, varredura de segurança (Trivy + Checkov) e um plano por stage, com resumo por IA e comentário no PR. Consumido hoje pelo [`togglemaster-iac`](https://github.com/fiap-tech-challenge-devops/togglemaster-iac):
+
+```yaml
+jobs:
+  iac:
+    name: iac
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-plan.yml@v1.0.0
+    with:
+      stages: '[{"stage":"infra","required":true},{"stage":"addons","required":false}]'
+      summary-stage: infra
+      state-bucket-prefix: togglemaster-iac-tfstate
+    secrets:
+      aws-oidc-role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN_VITAO }}
+      openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+```
+
+> **Atenção ao nome dos checks.** Um workflow chamado reporta como `<job do caller> / <job do chamado>` — com o job acima chamado `iac`, os checks viram `iac / Plan (infra)`, `iac / Security` e assim por diante. Se houver ruleset exigindo status checks, ele precisa listar exatamente esses nomes, prefixo incluído. Renomear o job do caller quebra o merge de todos os PRs abertos.
+
+O plano é **descartado** ao fim do run: não vira artifact e não é reaplicado. O arquivo de plano contém todos os valores dos atributos em texto claro, inclusive senhas, e um artifact do Actions é baixável por qualquer pessoa com leitura no repositório. O apply replaneja no próprio run.
 
 ## Como um serviço consome
 

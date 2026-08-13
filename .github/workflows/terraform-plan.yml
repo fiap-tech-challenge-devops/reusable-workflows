@@ -1,0 +1,311 @@
+name: Terraform — Plan
+
+# Esteira de plano para repositórios de IaC: validação de sintaxe, varredura de
+# segurança e um plano por stage, com resumo por IA e comentário no PR.
+#
+# O plano é DESCARTADO ao fim do run: não vira artifact e não é reaplicado.
+# O arquivo de plano contém todos os valores dos atributos em texto claro,
+# inclusive os sensíveis, e um artifact do Actions é baixável por qualquer
+# pessoa com leitura no repositório. O apply replaneja no próprio run.
+#
+# É também por isso que o resumo por IA é um composite action e não outro
+# reusable workflow: ele precisa rodar no MESMO job que gerou o plano.
+
+on:
+  workflow_call:
+    inputs:
+      stages:
+        description: >-
+          JSON com os stages a planejar. Cada entrada precisa de "stage" (o
+          diretório) e "required" (se a falha do plano reprova o job).
+          Ex.: '[{"stage":"infra","required":true},{"stage":"addons","required":false}]'
+        type: string
+        required: true
+      summary-stage:
+        description: "Qual stage recebe o resumo por IA. Vazio desliga o resumo."
+        type: string
+        required: false
+        default: "infra"
+      state-bucket-prefix:
+        description: "Bucket do state, resolvido como <prefix>-<ACCOUNT_ID>."
+        type: string
+        required: true
+      aws-region:
+        type: string
+        required: false
+        default: "us-east-1"
+      terraform-version:
+        type: string
+        required: false
+        default: "1.15.8"
+      openai-model:
+        type: string
+        required: false
+        default: "gpt-5.6-terra"
+      trivy-config:
+        type: string
+        required: false
+        default: "trivy.yaml"
+      checkov-config:
+        type: string
+        required: false
+        default: ".checkov.yaml"
+
+    secrets:
+      aws-oidc-role-arn:
+        description: "Role assumida por federação OIDC."
+        required: true
+      openai-api-key:
+        description: "Chave da OpenAI. Ausente, o resumo simplesmente não aparece."
+        required: false
+
+# Declarados aqui, e não herdados: um workflow compartilhado não deveria depender
+# de o chamador ter acertado as permissões.
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  validate:
+    name: Validate (${{ matrix.stage }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.stages) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+
+      - name: Terraform fmt
+        working-directory: ${{ matrix.stage }}
+        run: terraform fmt -check -recursive
+
+      # -backend=false: validate não precisa do state, e assim o job não depende
+      # de credencial AWS nem do backend existir.
+      - name: Terraform init
+        working-directory: ${{ matrix.stage }}
+        run: terraform init -backend=false -input=false
+
+      - name: Terraform validate
+        working-directory: ${{ matrix.stage }}
+        run: terraform validate
+
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # O tfsec foi descontinuado e incorporado ao Trivy — "trivy config" roda o
+      # mesmo conjunto de regras, com manutenção ativa.
+      #
+      # Versões fixadas em tag, nunca em branch: uma esteira que existe para
+      # barrar vulnerabilidade não deveria executar código que muda sozinho.
+      - name: Trivy (IaC misconfiguration)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          trivy-config: ${{ inputs.trivy-config }}
+          exit-code: "1"
+
+      # As releases do checkov-action pararam em 2022, mas as TAGS continuam
+      # saindo — por isso a referência é a uma tag e não a @master.
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12.3115.0
+        with:
+          directory: .
+          config_file: ${{ inputs.checkov-config }}
+          soft_fail: false
+
+  plan:
+    name: Plan (${{ matrix.stage }})
+    runs-on: ubuntu-latest
+    needs: [validate, security]
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.stages) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Autenticar na AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.aws-oidc-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+
+      - name: Backend config
+        id: backend
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "bucket=${{ inputs.state-bucket-prefix }}-${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform init
+        working-directory: ${{ matrix.stage }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ steps.backend.outputs.bucket }}" \
+            -backend-config="region=${{ inputs.aws-region }}" \
+            -backend-config="use_lockfile=true"
+
+      # -lock=false: plan não altera o state, e sem lock um PR não bloqueia outro.
+      #
+      # -out=tfplan grava o plano binário para o resumo do step seguinte, que de
+      # outro modo exigiria planejar duas vezes. Ele some com o runner.
+      - name: Terraform plan
+        id: plan
+        working-directory: ${{ matrix.stage }}
+        continue-on-error: ${{ !matrix.required }}
+        run: |
+          terraform plan -input=false -lock=false -no-color -out=tfplan 2>&1 | tee plan.txt
+          exit "${PIPESTATUS[0]}"
+
+      # Informativo, nunca um gate: continue-on-error garante que uma
+      # indisponibilidade da API não reprove um PR de infraestrutura.
+      #
+      # A referência é a uma tag, e não a @main, pelo mesmo motivo das actions de
+      # terceiros acima. Precisa ser atualizada junto com a tag deste repositório
+      # — "uses" não aceita expressão, então não dá para derivar de github.ref.
+      - name: Resumo do plano por IA
+        id: resumo_ia
+        if: inputs.summary-stage != '' && matrix.stage == inputs.summary-stage && steps.plan.outcome == 'success'
+        continue-on-error: true
+        uses: fiap-tech-challenge-devops/reusable-workflows/actions/terraform-plan-summary@v1.0.0
+        with:
+          api-key: ${{ secrets.openai-api-key }}
+          working-directory: ${{ matrix.stage }}
+          model: ${{ inputs.openai-model }}
+          label: ${{ matrix.stage }}
+
+      # Em disparo manual não há PR para comentar — o plano vai para o resumo do run.
+      - name: Resumo do plano
+        if: always()
+        env:
+          OUTCOME: ${{ steps.plan.outcome }}
+          REQUIRED: ${{ matrix.required }}
+          STAGE: ${{ matrix.stage }}
+        run: |
+          # Um "failure" no stage não obrigatório costuma significar que uma
+          # dependência ainda não foi aplicada, e não que há algo errado. Sem
+          # esta distinção, o resumo fica idêntico ao de uma falha de verdade.
+          case "$OUTCOME:$REQUIRED" in
+            success:*)     ICON="✅"; NOTA="" ;;
+            failure:false) ICON="⚠️"; NOTA="> Falha esperada enquanto as dependências deste stage não tiverem sido aplicadas. Não bloqueia o merge." ;;
+            *)             ICON="❌"; NOTA="" ;;
+          esac
+
+          {
+            echo "### $ICON Terraform plan — \`$STAGE\` ($OUTCOME)"
+            echo ""
+            if [ -n "$NOTA" ]; then
+              echo "$NOTA"
+              echo ""
+            fi
+            # O resumo entra ACIMA do plano, não no lugar dele. O arquivo já vem
+            # pronto do action, rodapé incluído quando cabe — aqui só se reproduz.
+            if [ -s "$STAGE/resumo-ia.md" ]; then
+              cat "$STAGE/resumo-ia.md"
+              echo ""
+            fi
+            echo '<details><summary>Ver plano</summary>'
+            echo ""
+            echo '```terraform'
+            # tail: o resumo add/change/destroy fica no fim, e o corpo do summary
+            # tem limite de 1 MB.
+            tail -c 900000 "$STAGE/plan.txt" 2>/dev/null || echo "sem saída de plan"
+            echo '```'
+            echo ""
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comentar no PR
+        uses: actions/github-script@v9
+        if: always() && github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const stage = '${{ matrix.stage }}';
+            const outcome = '${{ steps.plan.outcome }}';
+
+            let plan = '';
+            try {
+              plan = fs.readFileSync(stage + '/plan.txt', 'utf8');
+            } catch (e) {
+              plan = 'Nenhuma saída de plan — o step não chegou a executar.';
+            }
+
+            // Opcional por definição: só um stage gera resumo, e mesmo lá ele
+            // pode faltar (secret ausente, API fora, resposta sem texto).
+            // O arquivo já vem pronto, rodapé incluído quando cabe.
+            let resumo = '';
+            try {
+              resumo = fs.readFileSync(stage + '/resumo-ia.md', 'utf8').trim();
+            } catch (e) { /* sem resumo — segue com o plano puro */ }
+
+            // O corpo de um comentário tem limite de 65536 caracteres. O trecho
+            // final é o que interessa (o resumo add/change/destroy).
+            const LIMIT = 60000;
+            if (plan.length > LIMIT) {
+              plan = '...(truncado)...\n' + plan.slice(-LIMIT);
+            }
+
+            const icon = outcome === 'success' ? '✅'
+                       : (outcome === 'failure' && '${{ matrix.required }}' === 'false') ? '⚠️'
+                       : '❌';
+
+            const note = (outcome === 'failure' && '${{ matrix.required }}' === 'false')
+              ? '\n> Falha esperada enquanto as dependências deste stage não tiverem sido aplicadas.\n'
+              : '';
+
+            const body = [
+              '### ' + icon + ' Terraform plan — `' + stage + '`',
+              note,
+              resumo,
+              '<details><summary>Ver plano</summary>',
+              '',
+              '```terraform',
+              plan,
+              '```',
+              '',
+              '</details>',
+            ].join('\n');
+
+            // Atualiza o comentário anterior do mesmo stage em vez de empilhar um
+            // novo a cada push na branch.
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const previous = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Terraform plan — `' + stage + '`')
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
