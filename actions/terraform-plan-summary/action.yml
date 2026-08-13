@@ -3,11 +3,7 @@ description: >
   Resume um plano do Terraform com IA, enviando apenas a ESTRUTURA do plano —
   endereços, tipos, ações e nomes de atributos. Nenhum valor sai da máquina.
 
-# Precisa rodar no MESMO job que gerou o plano. É por isso que isto é um
-# composite action e não um reusable workflow: o plano binário nunca deve virar
-# artifact, porque "terraform show -json" NÃO redige valores sensíveis — a senha
-# aparece em texto claro ao lado do próprio "sensitive": true. Um artifact é
-# baixável por qualquer pessoa com leitura no repositório.
+# Precisa rodar no mesmo job que gerou o plano — ver README.md.
 
 inputs:
   api-key:
@@ -80,8 +76,5 @@ runs:
         LABEL: ${{ inputs.label }}
         INSTRUCTIONS: ${{ inputs.instructions }}
         FOOTER: ${{ inputs.footer }}
-        NO_CHANGES_MESSAGE: ${{ inputs.no-changes-message }}
-      # Invocado via "bash <caminho>" em vez de executado direto: o bit de
-      # execução não sobrevive a um checkout feito no Windows, e o job falharia
-      # com "permission denied" só nesses runners.
+        NO_CHANGES_MESSAGE: ${{ inputs.no-changes-message }} 
       run: bash "${GITHUB_ACTION_PATH}/summarize.sh"

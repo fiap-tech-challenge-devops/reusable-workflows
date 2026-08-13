@@ -1,0 +1,151 @@
+name: Terraform — Destroy
+
+# Destrói UM stage, na ordem inversa do apply, definida pelo caller com needs:.
+# Doc e exemplo: docs/terraform-destroy/
+#
+# eks-cleanup limpa o cluster antes do destroy. Ligue no PRIMEIRO stage da
+# cadeia: load balancers e nós criados por controllers dentro do cluster não
+# estão no tfstate, e se sobreviverem seguram a VPC — o destroy trava em
+# DependencyViolation ao remover as subnets.
+
+on:
+  workflow_call:
+    inputs:
+      stage:
+        description: "Diretório do stage a destruir."
+        type: string
+        required: true
+      state-bucket-prefix:
+        description: "Bucket do state, resolvido como <prefix>-<ACCOUNT_ID>."
+        type: string
+        required: true
+      eks-cleanup:
+        description: "Limpar os recursos do cluster antes do destroy. Ligue apenas no primeiro stage da cadeia."
+        type: boolean
+        required: false
+        default: false
+      eks-cluster-ssm-parameter:
+        description: "Parâmetro do SSM que guarda o nome do cluster. Obrigatório quando eks-cleanup é true."
+        type: string
+        required: false
+        default: ""
+      environment:
+        description: "Environment do GitHub, para exigir aprovação humana. Vazio, destrói direto."
+        type: string
+        required: false
+        default: ""
+      aws-region:
+        description: "Região onde o state e os recursos vivem."
+        type: string
+        required: false
+        default: "us-east-1"
+      terraform-version:
+        description: "Versão do Terraform instalada no job."
+        type: string
+        required: false
+        default: "1.15.8"
+
+    secrets:
+      aws-oidc-role-arn:
+        description: "Role assumida por federação OIDC."
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy:
+    name: destroy ${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Autenticar na AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.aws-oidc-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - uses: azure/setup-kubectl@v5
+        if: inputs.eks-cleanup
+
+      - name: Limpar recursos que criam infraestrutura fora do tfstate
+        if: inputs.eks-cleanup
+        env:
+          SSM_PARAM: ${{ inputs.eks-cluster-ssm-parameter }}
+          AWS_REGION: ${{ inputs.aws-region }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$SSM_PARAM" ]; then
+            echo "eks-cleanup ligado sem eks-cluster-ssm-parameter."
+            exit 1
+          fi
+
+          CLUSTER=$(aws ssm get-parameter --name "$SSM_PARAM" \
+            --query Parameter.Value --output text 2>/dev/null || true)
+
+          if [ -z "$CLUSTER" ] || [ "$CLUSTER" = "None" ]; then
+            echo "Cluster não encontrado no SSM — nada a limpar."
+            exit 0
+          fi
+
+          if ! aws eks describe-cluster --name "$CLUSTER" >/dev/null 2>&1; then
+            echo "Cluster $CLUSTER não existe mais — nada a limpar."
+            exit 0
+          fi
+
+          aws eks update-kubeconfig --name "$CLUSTER" --region "$AWS_REGION"
+
+          # Argo CD primeiro, senão ele recria tudo que apagarmos a seguir.
+          echo "Removendo Applications do Argo CD..."
+          kubectl delete applications --all -n argocd --ignore-not-found --timeout=300s || true
+
+          # Cada Ingress tem um ALB associado, provisionado pelo controller.
+          echo "Removendo Ingresses (libera os ALBs)..."
+          kubectl delete ingress --all --all-namespaces --ignore-not-found --timeout=300s || true
+
+          echo "Removendo Services do tipo LoadBalancer..."
+          kubectl get svc --all-namespaces \
+            -o jsonpath='{range .items[?(@.spec.type=="LoadBalancer")]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+            | while read -r ns name; do
+                [ -n "$name" ] && kubectl delete svc "$name" -n "$ns" --ignore-not-found || true
+              done
+
+          echo "Removendo NodePools do Karpenter..."
+          kubectl delete nodepools.karpenter.sh --all --ignore-not-found --timeout=600s || true
+          kubectl delete ec2nodeclasses.karpenter.k8s.aws --all --ignore-not-found --timeout=300s || true
+
+          # Tempo para os controllers processarem as remoções na AWS antes de o
+          # Terraform tentar apagar a VPC.
+          echo "Aguardando os controllers liberarem os recursos..."
+          sleep 90
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+
+      - name: Backend config
+        id: backend
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "bucket=${{ inputs.state-bucket-prefix }}-${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform init
+        working-directory: ${{ inputs.stage }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ steps.backend.outputs.bucket }}" \
+            -backend-config="region=${{ inputs.aws-region }}" \
+            -backend-config="use_lockfile=true"
+
+      - name: Terraform destroy
+        working-directory: ${{ inputs.stage }}
+        run: terraform destroy -input=false -auto-approve
+
+      - name: Resumo
+        if: always()
+        run: |
+          echo "### Destroy — \`${{ inputs.stage }}\` (${{ job.status }})" >> "$GITHUB_STEP_SUMMARY"

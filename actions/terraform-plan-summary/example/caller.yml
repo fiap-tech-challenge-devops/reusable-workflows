@@ -1,0 +1,67 @@
+# Exemplo mínimo de uso do action terraform-plan-summary.
+#
+# Copie para .github/workflows/ de um repositório que rode terraform plan.
+# Requer o secret OPENAI_API_KEY e uma role AWS federada por OIDC.
+
+name: Exemplo — resumo de plano
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: "1.15.8"
+
+      - name: Terraform init
+        working-directory: infra
+        run: terraform init -input=false
+
+      # -out é obrigatório: o action lê o plano binário, não a saída de texto.
+      - name: Terraform plan
+        id: plan
+        working-directory: infra
+        run: terraform plan -input=false -no-color -out=tfplan | tee plan.txt
+
+      - name: Resumo do plano por IA
+        id: resumo
+        if: steps.plan.outcome == 'success'
+        continue-on-error: true
+        uses: fiap-tech-challenge-devops/reusable-workflows/actions/terraform-plan-summary@v1.0.0
+        with:
+          api-key: ${{ secrets.OPENAI_API_KEY }}
+          working-directory: infra
+          label: infra
+
+      - name: Publicar
+        if: always()
+        run: |
+          {
+            if [ -s infra/resumo-ia.md ]; then
+              cat infra/resumo-ia.md
+              echo ""
+            fi
+            echo '<details><summary>Ver plano</summary>'
+            echo ""
+            echo '```terraform'
+            tail -c 900000 infra/plan.txt
+            echo '```'
+            echo ""
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"

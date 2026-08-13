@@ -1,0 +1,61 @@
+# Exemplo de caller do workflow terraform-destroy.
+#
+# Copie para .github/workflows/ do repositório de IaC e ajuste os valores.
+
+name: IaC — Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite exatamente "DESTROY" para confirmar'
+        type: string
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: iac-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # A confirmação por texto fica aqui, não no workflow compartilhado: a palavra
+  # é do projeto e pertence a onde o gatilho é declarado.
+  guard:
+    name: Confirmar
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ "${{ inputs.confirm }}" != "DESTROY" ]; then
+            echo "Abortado: confirm deve ser exatamente DESTROY."
+            exit 1
+          fi
+
+  # eks-cleanup só aqui, no primeiro da cadeia. O environment é o gate humano:
+  # não há PR nem plano para ler antes de um destroy.
+  addons:
+    needs: guard
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-destroy.yml@v1.0.0
+    with:
+      stage: addons
+      state-bucket-prefix: togglemaster-iac-tfstate
+      environment: production
+      eks-cleanup: true
+      eks-cluster-ssm-parameter: /togglemaster/iac/cluster-name
+      aws-region: us-east-1
+      terraform-version: "1.15.8"
+    secrets:
+      aws-oidc-role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN_VITAO }}
+
+  infra:
+    needs: addons
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-destroy.yml@v1.0.0
+    with:
+      stage: infra
+      state-bucket-prefix: togglemaster-iac-tfstate
+      aws-region: us-east-1
+      terraform-version: "1.15.8"
+    secrets:
+      aws-oidc-role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN_VITAO }}

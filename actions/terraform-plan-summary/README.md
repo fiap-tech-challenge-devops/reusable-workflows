@@ -53,26 +53,11 @@ O action **não** resolve, e o job precisa ter feito antes:
 - `terraform plan` executado com `-out=<arquivo>`
 - `jq` e `curl` disponíveis (ambos já vêm no `ubuntu-latest`)
 
-## Inputs
+## Inputs e outputs
 
-| nome | obrigatório | default | descrição |
-|---|:---:|---|---|
-| `api-key` | não | `""` | Chave da OpenAI. Vazia, o action sai limpo e não escreve resumo. |
-| `working-directory` | não | `.` | Onde está o plano e onde o resumo será escrito. |
-| `plan-file` | não | `tfplan` | Nome do plano binário. |
-| `output-file` | não | `resumo-ia.md` | Arquivo do resumo, relativo ao `working-directory`. |
-| `model` | não | `gpt-5.6-terra` | Modelo da OpenAI. |
-| `label` | não | `""` | Rótulo do plano (ex.: nome do stage), incluído no prompt como contexto. |
-| `instructions` | não | prompt em pt-BR | Sobrescreve o prompt. Use para trocar de idioma ou de foco. |
-| `footer` | não | ver `action.yml` | Rodapé, acrescentado **só** quando o texto veio do modelo. |
-| `no-changes-message` | não | ver `action.yml` | Mensagem usada quando o plano não muda nada. |
+A lista completa, com descrição e default de cada um, está em [`action.yml`](action.yml) — que é onde ela não tem como ficar desatualizada. Só `api-key` importa na maioria dos casos; o resto tem default razoável.
 
-## Outputs
-
-| nome | descrição |
-|---|---|
-| `summary-file` | Caminho do resumo escrito, ou vazio se nenhum foi produzido. |
-| `has-changes` | `true` se o plano altera algo, `false` se não, vazio se desistiu. |
+Dois outputs: `summary-file` (caminho do resumo, ou vazio) e `has-changes` (`true`/`false`).
 
 ## Comportamento
 
@@ -108,23 +93,18 @@ Só isto, para um plano que cria um RDS e altera uma fila:
 
 Note `"password"` na lista: o **nome** do atributo vai, o valor não.
 
-## Testes
+## Duas linhas que parecem redundantes e não são
+
+Se for mexer no [`summarize.sh`](summarize.sh), estas duas já quebraram antes:
 
 ```bash
-bash test/run-local.sh
+# Filtrar por tipo, não por índice: pode vir bloco de raciocínio antes da mensagem.
+# Conteúdo, não tamanho: "jq -r" vazio grava 1 byte de quebra de linha e [ -s ] aceita.
 ```
 
-Dubla `terraform` e `curl`, não toca a rede nem a AWS. Os fixtures plantam valores `CANARIO-*` e o teste falha se qualquer um aparecer no corpo do request.
+A primeira: `output[0].content[0]` pega o item errado quando o modelo devolve raciocínio antes da mensagem. A segunda: `[ -s arquivo ]` aceita o byte que `jq -r` grava sobre resultado vazio, e o resumo sai como bloco em branco com rodapé.
 
-Cobre os seis caminhos da tabela acima e dois bugs que já aconteceram: ler a resposta por índice (`output[0].content[0]`) pega o item errado quando o modelo devolve um bloco de raciocínio antes da mensagem; e `[ -s arquivo ]` aceita o byte de quebra de linha que `jq -r` grava sobre resultado vazio, produzindo um bloco em branco.
-
-Para conferir que o teste ainda protege, mute uma cópia e rode contra ela:
-
-```bash
-cp -r actions/terraform-plan-summary /tmp/mutante
-# quebre algo em /tmp/mutante/summarize.sh
-ACTION_DIR=/tmp/mutante bash test/run-local.sh   # tem de reprovar
-```
+Nenhuma das duas dá erro visível quando quebra.
 
 ## Trocar de provedor
 

@@ -26,21 +26,61 @@ Faz parte de um conjunto de quatro repositórios:
 | [`togglemaster-gitops`](https://github.com/fiap-tech-challenge-devops/togglemaster-gitops) | Manifests Helm consumidos pelo Argo CD |
 | **`reusable-workflows`** | **Workflows de CI/CD compartilhados (este repo)** |
 
+## O que existe
+
+| peça | tipo | documentação |
+|---|---|---|
+| `terraform-plan` | reusable workflow | [docs/terraform-plan/](docs/terraform-plan/) |
+| `terraform-apply` | reusable workflow | [docs/terraform-apply/](docs/terraform-apply/) |
+| `terraform-destroy` | reusable workflow | [docs/terraform-destroy/](docs/terraform-destroy/) |
+| `terraform-plan-summary` | composite action | [actions/terraform-plan-summary/](actions/terraform-plan-summary/) |
+
+Previstos: `go-ci`, `python-ci` e `cd` para os cinco microsserviços.
+
+O `plan` roda os stages em **matriz** — a ordem é irrelevante e paralelo é vantagem. O `apply` e o `destroy` aplicam **um stage por chamada**, e a ordem fica no caller com `needs:`, porque matriz não encadeia dependência.
+
 ## Estrutura
 
 ```
-.github/workflows/
-├── terraform-plan.yml   # esteira de plano de IaC (pronta)
-├── go-ci.yaml           # CI dos serviços em Go (auth, evaluation)        — previsto
-├── python-ci.yaml       # CI dos serviços em Python (flag, targeting, analytics) — previsto
-└── cd.yaml              # promoção da imagem no repositório GitOps        — previsto
+.github/workflows/        ← plano; o GitHub não aceita subdiretórios aqui
+├── terraform-plan.yml
+├── terraform-apply.yml
+└── terraform-destroy.yml
 
-actions/
-└── terraform-plan-summary/   # resumo de plano por IA, sem vazar valores
+actions/                  ← livre; documentação e exemplo colocados
+└── terraform-plan-summary/
+    ├── action.yml            contrato
+    ├── summarize.sh
+    ├── README.md             uso e comportamento
+    └── example/caller.yml
 
-test/
-└── run-local.sh         # testa os actions sem rede e sem AWS
+docs/                     ← documentação dos workflows, que não cabe junto deles
+├── terraform-plan/
+│   ├── README.md
+│   └── example/caller.yml
+├── terraform-apply/
+└── terraform-destroy/
 ```
+
+A assimetria entre `actions/` e `docs/` não é escolha: um reusable workflow é obrigado a morar plano em `.github/workflows/`, então a documentação dele vai para uma pasta paralela. Actions podem morar em qualquer lugar e ficam com tudo junto, como os módulos do [`terraform-aws-modules`](https://github.com/fiap-tech-challenge-devops/terraform-aws-modules).
+
+## Como acrescentar um workflow ou action
+
+Não há ferramenta para rodar nem passo de build. A documentação de referência é o próprio YAML:
+
+1. **Escreva `description:` em todo input e secret.** Junto com `required` e `default`, isso já é a tabela de contrato — e é a única cópia, então não tem como divergir de nada.
+2. **Crie a pasta de documentação.** Workflow: `docs/<nome>/`. Action: dentro da própria pasta do action.
+3. **Escreva o `README.md`** com o que o YAML não diz: para que serve, o que o repositório consumidor precisa ter, as armadilhas.
+4. **Escreva um `example/caller.yml` completo** — arquivo inteiro, copiável, não trecho.
+5. **Acrescente a peça na tabela** [O que existe](#o-que-existe).
+
+O que **não** fazer: repetir a lista de inputs em tabela no README. Ela nasce correta e envelhece errada, e não há nada que avise.
+
+### Sobre os exemplos
+
+Cada peça tem um `example/caller.yml` completo, na linha dos módulos Terraform — com uma diferença que vale saber. O `example/` de um módulo é **executável**: `terraform validate` roda lá dentro e verifica o contrato de fato. Um caller de workflow não roda isolado, porque precisa dos secrets, da conta AWS e do evento certo.
+
+Então aqui o exemplo é referência para copiar, e não uma verificação.
 
 ## Esteira de IaC
 

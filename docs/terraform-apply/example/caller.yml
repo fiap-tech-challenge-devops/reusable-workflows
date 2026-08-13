@@ -1,0 +1,50 @@
+# Exemplo de caller do workflow terraform-apply.
+#
+# Copie para .github/workflows/ do repositório de IaC e ajuste os valores.
+
+name: IaC — Apply
+
+on:
+  push:
+    branches: [main]
+    # Sem o filtro, qualquer commit na main dispara um apply. Com ele, um PR que
+    # só toque docs mergeia e nada acontece — correto, mas parece que falhou.
+    paths:
+      - "infra/**"
+      - "addons/**"
+      - ".github/workflows/iac-apply.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+# cancel-in-progress false: cancelar um apply pela metade deixa o state
+# divergente da realidade.
+concurrency:
+  group: iac-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  infra:
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-apply.yml@v1.0.0
+    with:
+      stage: infra
+      state-bucket-prefix: togglemaster-iac-tfstate
+      aws-region: us-east-1
+      terraform-version: "1.15.8"
+    secrets:
+      aws-oidc-role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN_VITAO }}
+
+  # needs: é o que garante a ordem. Sem ele os dois rodariam em paralelo e o
+  # addons falharia — ele lê do SSM parâmetros que o infra ainda não criou.
+  addons:
+    needs: infra
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-apply.yml@v1.0.0
+    with:
+      stage: addons
+      state-bucket-prefix: togglemaster-iac-tfstate
+      aws-region: us-east-1
+      terraform-version: "1.15.8"
+    secrets:
+      aws-oidc-role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN_VITAO }}

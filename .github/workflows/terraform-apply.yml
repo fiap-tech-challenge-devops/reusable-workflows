@@ -1,0 +1,89 @@
+name: Terraform — Apply
+
+# Aplica UM stage. A ordem entre stages fica no caller, com needs: — matriz roda
+# em paralelo e não encadeia dependência. Doc e exemplo: docs/terraform-apply/
+#
+# Replaneja e aplica no mesmo job: nenhum plano atravessa a fronteira entre runs.
+
+on:
+  workflow_call:
+    inputs:
+      stage:
+        description: "Diretório do stage a aplicar."
+        type: string
+        required: true
+      state-bucket-prefix:
+        description: "Bucket do state, resolvido como <prefix>-<ACCOUNT_ID>."
+        type: string
+        required: true
+      environment:
+        description: "Environment do GitHub, se o apply deve passar por aprovação. Vazio, aplica direto."
+        type: string
+        required: false
+        default: ""
+      aws-region:
+        description: "Região onde o state e os recursos vivem."
+        type: string
+        required: false
+        default: "us-east-1"
+      terraform-version:
+        description: "Versão do Terraform instalada no job."
+        type: string
+        required: false
+        default: "1.15.8"
+
+    secrets:
+      aws-oidc-role-arn:
+        description: "Role assumida por federação OIDC."
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  apply:
+    name: apply ${{ inputs.stage }}
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Autenticar na AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.aws-oidc-role-arn }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ inputs.terraform-version }}
+
+      - name: Backend config
+        id: backend
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          echo "bucket=${{ inputs.state-bucket-prefix }}-${ACCOUNT_ID}" >> "$GITHUB_OUTPUT"
+
+      - name: Terraform init
+        working-directory: ${{ inputs.stage }}
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ steps.backend.outputs.bucket }}" \
+            -backend-config="region=${{ inputs.aws-region }}" \
+            -backend-config="use_lockfile=true"
+
+      # Para o log: mostra o que o apply vai fazer, no mesmo run e com o mesmo
+      # state. Não é persistido nem reaproveitado.
+      - name: Terraform plan
+        working-directory: ${{ inputs.stage }}
+        run: terraform plan -input=false -no-color
+
+      - name: Terraform apply
+        working-directory: ${{ inputs.stage }}
+        run: terraform apply -input=false -auto-approve
+
+      - name: Resumo
+        if: always()
+        run: |
+          echo "### Apply — \`${{ inputs.stage }}\` (${{ job.status }})" >> "$GITHUB_STEP_SUMMARY"

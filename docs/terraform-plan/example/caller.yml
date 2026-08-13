@@ -1,0 +1,39 @@
+# Exemplo de caller do workflow terraform-plan.
+#
+# Copie para .github/workflows/ do repositório de IaC e ajuste os valores.
+# Este arquivo é referência: um caller não roda isolado, precisa dos secrets
+# e da conta AWS do repositório que o hospeda.
+
+name: IaC — Plan
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: iac-plan-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # O nome deste job vira prefixo dos status checks: "iac / Plan (infra)".
+  # Se houver ruleset exigindo checks, renomear aqui trava o merge.
+  iac:
+    name: iac
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/terraform-plan.yml@v1.0.0
+    with:
+      stages: >-
+        [{"stage":"infra","required":true},{"stage":"addons","required":false}]
+      summary-stage: infra
+      state-bucket-prefix: togglemaster-iac-tfstate
+      aws-region: us-east-1
+      terraform-version: "1.15.8"
+      openai-model: gpt-5.6-terra
+    secrets:
+      aws-oidc-role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN_VITAO }}
+      openai-api-key: ${{ secrets.OPENAI_API_KEY }}

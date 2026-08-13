@@ -1,15 +1,7 @@
 name: Terraform — Plan
 
-# Esteira de plano para repositórios de IaC: validação de sintaxe, varredura de
-# segurança e um plano por stage, com resumo por IA e comentário no PR.
-#
-# O plano é DESCARTADO ao fim do run: não vira artifact e não é reaplicado.
-# O arquivo de plano contém todos os valores dos atributos em texto claro,
-# inclusive os sensíveis, e um artifact do Actions é baixável por qualquer
-# pessoa com leitura no repositório. O apply replaneja no próprio run.
-#
-# É também por isso que o resumo por IA é um composite action e não outro
-# reusable workflow: ele precisa rodar no MESMO job que gerou o plano.
+# Esteira de plano para repositórios de IaC. Doc e exemplo: docs/terraform-plan/
+# O plano é descartado ao fim do run: nunca vira artifact.
 
 on:
   workflow_call:
@@ -31,22 +23,27 @@ on:
         type: string
         required: true
       aws-region:
+        description: "Região onde o state e os recursos vivem."
         type: string
         required: false
         default: "us-east-1"
       terraform-version:
+        description: "Versão do Terraform instalada nos jobs."
         type: string
         required: false
         default: "1.15.8"
       openai-model:
+        description: "Modelo usado no resumo por IA."
         type: string
         required: false
         default: "gpt-5.6-terra"
       trivy-config:
+        description: "Caminho do arquivo de configuração do Trivy, relativo à raiz do repositório."
         type: string
         required: false
         default: "trivy.yaml"
       checkov-config:
+        description: "Caminho do arquivo de configuração do Checkov, relativo à raiz do repositório."
         type: string
         required: false
         default: ".checkov.yaml"
@@ -59,8 +56,6 @@ on:
         description: "Chave da OpenAI. Ausente, o resumo simplesmente não aparece."
         required: false
 
-# Declarados aqui, e não herdados: um workflow compartilhado não deveria depender
-# de o chamador ter acertado as permissões.
 permissions:
   id-token: write
   contents: read
@@ -88,8 +83,6 @@ jobs:
         working-directory: ${{ matrix.stage }}
         run: terraform fmt -check -recursive
 
-      # -backend=false: validate não precisa do state, e assim o job não depende
-      # de credencial AWS nem do backend existir.
       - name: Terraform init
         working-directory: ${{ matrix.stage }}
         run: terraform init -backend=false -input=false
@@ -103,12 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-
-      # O tfsec foi descontinuado e incorporado ao Trivy — "trivy config" roda o
-      # mesmo conjunto de regras, com manutenção ativa.
-      #
-      # Versões fixadas em tag, nunca em branch: uma esteira que existe para
-      # barrar vulnerabilidade não deveria executar código que muda sozinho.
+ 
       - name: Trivy (IaC misconfiguration)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -117,8 +105,6 @@ jobs:
           trivy-config: ${{ inputs.trivy-config }}
           exit-code: "1"
 
-      # As releases do checkov-action pararam em 2022, mas as TAGS continuam
-      # saindo — por isso a referência é a uma tag e não a @master.
       - name: Checkov
         uses: bridgecrewio/checkov-action@v12.3115.0
         with:
@@ -161,10 +147,6 @@ jobs:
             -backend-config="region=${{ inputs.aws-region }}" \
             -backend-config="use_lockfile=true"
 
-      # -lock=false: plan não altera o state, e sem lock um PR não bloqueia outro.
-      #
-      # -out=tfplan grava o plano binário para o resumo do step seguinte, que de
-      # outro modo exigiria planejar duas vezes. Ele some com o runner.
       - name: Terraform plan
         id: plan
         working-directory: ${{ matrix.stage }}
@@ -172,13 +154,7 @@ jobs:
         run: |
           terraform plan -input=false -lock=false -no-color -out=tfplan 2>&1 | tee plan.txt
           exit "${PIPESTATUS[0]}"
-
-      # Informativo, nunca um gate: continue-on-error garante que uma
-      # indisponibilidade da API não reprove um PR de infraestrutura.
-      #
-      # A referência é a uma tag, e não a @main, pelo mesmo motivo das actions de
-      # terceiros acima. Precisa ser atualizada junto com a tag deste repositório
-      # — "uses" não aceita expressão, então não dá para derivar de github.ref.
+   
       - name: Resumo do plano por IA
         id: resumo_ia
         if: inputs.summary-stage != '' && matrix.stage == inputs.summary-stage && steps.plan.outcome == 'success'
@@ -190,7 +166,6 @@ jobs:
           model: ${{ inputs.openai-model }}
           label: ${{ matrix.stage }}
 
-      # Em disparo manual não há PR para comentar — o plano vai para o resumo do run.
       - name: Resumo do plano
         if: always()
         env:
@@ -198,9 +173,7 @@ jobs:
           REQUIRED: ${{ matrix.required }}
           STAGE: ${{ matrix.stage }}
         run: |
-          # Um "failure" no stage não obrigatório costuma significar que uma
-          # dependência ainda não foi aplicada, e não que há algo errado. Sem
-          # esta distinção, o resumo fica idêntico ao de uma falha de verdade.
+          # Falha em stage não obrigatório costuma ser dependência não aplicada.
           case "$OUTCOME:$REQUIRED" in
             success:*)     ICON="✅"; NOTA="" ;;
             failure:false) ICON="⚠️"; NOTA="> Falha esperada enquanto as dependências deste stage não tiverem sido aplicadas. Não bloqueia o merge." ;;
@@ -214,8 +187,7 @@ jobs:
               echo "$NOTA"
               echo ""
             fi
-            # O resumo entra ACIMA do plano, não no lugar dele. O arquivo já vem
-            # pronto do action, rodapé incluído quando cabe — aqui só se reproduz.
+            # Acima do plano, não no lugar dele. Vem pronto do action.
             if [ -s "$STAGE/resumo-ia.md" ]; then
               cat "$STAGE/resumo-ia.md"
               echo ""
@@ -223,8 +195,7 @@ jobs:
             echo '<details><summary>Ver plano</summary>'
             echo ""
             echo '```terraform'
-            # tail: o resumo add/change/destroy fica no fim, e o corpo do summary
-            # tem limite de 1 MB.
+            # tail: o resumo fica no fim, e o summary tem limite de 1 MB.
             tail -c 900000 "$STAGE/plan.txt" 2>/dev/null || echo "sem saída de plan"
             echo '```'
             echo ""
@@ -247,16 +218,13 @@ jobs:
               plan = 'Nenhuma saída de plan — o step não chegou a executar.';
             }
 
-            // Opcional por definição: só um stage gera resumo, e mesmo lá ele
-            // pode faltar (secret ausente, API fora, resposta sem texto).
-            // O arquivo já vem pronto, rodapé incluído quando cabe.
+            // Pode faltar: secret ausente, API fora, resposta sem texto.
             let resumo = '';
             try {
               resumo = fs.readFileSync(stage + '/resumo-ia.md', 'utf8').trim();
             } catch (e) { /* sem resumo — segue com o plano puro */ }
 
-            // O corpo de um comentário tem limite de 65536 caracteres. O trecho
-            // final é o que interessa (o resumo add/change/destroy).
+            // Limite de 65536 caracteres no corpo do comentário.
             const LIMIT = 60000;
             if (plan.length > LIMIT) {
               plan = '...(truncado)...\n' + plan.slice(-LIMIT);
@@ -283,8 +251,7 @@ jobs:
               '</details>',
             ].join('\n');
 
-            // Atualiza o comentário anterior do mesmo stage em vez de empilhar um
-            // novo a cada push na branch.
+            // Atualiza o comentário anterior em vez de empilhar um novo.
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
