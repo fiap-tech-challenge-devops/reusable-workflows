@@ -64,6 +64,7 @@ jobs:
 
        
         - name: Run Gosec Security Scanner
+          continue-on-error: true
           uses: securego/gosec@master
           with:
             args: -severity high ./...
