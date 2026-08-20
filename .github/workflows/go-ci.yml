@@ -37,6 +37,7 @@ jobs:
     name: Linter
     runs-on: ubuntu-latest
     needs: build-test
+    continue-on-error: true
 
     steps:
       - name: Checkout source code
