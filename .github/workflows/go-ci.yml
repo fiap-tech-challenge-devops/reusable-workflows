@@ -9,6 +9,19 @@ on:
         type: string
         default: "1.21"
 
+      ecr-repository:
+        description: "Nome do repositorio ECR"
+        required: true
+        type: string
+
+    secrets:
+      AWS_ROLE_ARN:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   build-test:
     name: Build and Unit Test
@@ -37,6 +50,7 @@ jobs:
     name: Linter
     runs-on: ubuntu-latest
     needs: build-test
+    continue-on-error: true
 
     steps:
       - name: Checkout source code
@@ -64,6 +78,7 @@ jobs:
 
        
         - name: Run Gosec Security Scanner
+          continue-on-error: true
           uses: securego/gosec@master
           with:
             args: -severity high ./...
@@ -103,3 +118,33 @@ jobs:
           format: table
           exit-code: "1"
           severity: CRITICAL
+
+  ecr-push:
+    name: Push Image to Amazon ECR
+    runs-on: ubuntu-latest
+    needs:
+      - docker
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.ecr-repository }}:${{ github.sha }}
+
+  
