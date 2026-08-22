@@ -1,0 +1,169 @@
+name: Python CI
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Versao do Python utilizada pelo microsservico"
+        required: false
+        type: string
+        default: "3.9"
+
+      ecr-repository:
+        description: "Nome do repositorio ECR"
+        required: true
+        type: string
+
+    secrets:
+      AWS_ROLE_ARN:
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-test:
+    name: Build and Unit Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout do codigo fonte
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validar sintaxe Python
+        run: python -m compileall .
+
+      - name: Verificar existencia de testes
+        id: tests
+        shell: bash
+        run: |
+          if find . -type f \( -name "test_*.py" -o -name "*_test.py" \) | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "Nenhum teste unitario encontrado."
+          fi
+
+      - name: Executar testes unitarios
+        if: steps.tests.outputs.found == 'true'
+        run: |
+          pip install pytest
+          pytest -v
+
+  lint:
+    name: Linter
+    runs-on: ubuntu-latest
+    needs: build-test
+    continue-on-error: true
+
+    steps:
+      - name: Checkout do codigo fonte
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Instalar Ruff
+        run: pip install ruff
+
+      - name: Executar Ruff
+        run: ruff check .
+
+  security:
+    name: Security Scan (SAST & SCA)
+    runs-on: ubuntu-latest
+    needs: build-test
+
+    steps:
+      - name: Checkout do codigo fonte
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version }}
+
+      - name: Instalar Bandit
+        run: pip install bandit
+
+      - name: Executar Bandit SAST
+        continue-on-error: true
+        run: bandit -r . -ll
+
+      - name: Executar Trivy SCA
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+
+  docker:
+    name: Docker Build and Container Scan
+    runs-on: ubuntu-latest
+    needs:
+      - build-test
+      - security
+
+    steps:
+      - name: Checkout do codigo fonte
+        uses: actions/checkout@v4
+
+      - name: Build da imagem Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: ${{ inputs.ecr-repository }}:${{ github.sha }}
+
+      - name: Scan da imagem com Trivy
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ inputs.ecr-repository }}:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          severity: CRITICAL
+
+  ecr-push:
+    name: Push Image to Amazon ECR
+    runs-on: ubuntu-latest
+    needs:
+      - docker
+
+    steps:
+      - name: Checkout do codigo fonte
+        uses: actions/checkout@v4
+
+      - name: Configurar credenciais AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Login no Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build e Push da imagem Docker
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.ecr-repository }}:${{ github.sha }}
