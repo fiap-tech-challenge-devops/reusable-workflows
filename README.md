@@ -153,9 +153,11 @@ As três ferramentas cobrem frentes distintas: `gitleaks` procura segredos versi
 
 ### Tag da imagem
 
-Formato `v<versão>-<commit-curto>`, por exemplo `v1.0.0-a1b2c3d`.
+O SHA completo do commit — `${{ github.sha }}`, quarenta caracteres. Uma imagem é sempre rastreável até o commit exato que a originou, sem tabela de correspondência no meio.
 
-Os repositórios ECR são criados com `IMMUTABLE`: uma tag publicada não pode ser reapontada. Isso garante que a imagem auditada na esteira é exatamente a que roda no cluster.
+Os repositórios ECR são criados com `IMMUTABLE`: uma tag publicada não pode ser reapontada. Somado ao SHA como tag, isso fecha a rastreabilidade — a imagem auditada na esteira é exatamente a que roda no cluster, e ninguém consegue trocar o conteúdo por baixo dela.
+
+O build também é único: o job `image` constrói, escaneia e publica na mesma execução, com `docker push` em vez de uma segunda construção. O binário auditado é o binário publicado.
 
 ## O estágio de CD
 

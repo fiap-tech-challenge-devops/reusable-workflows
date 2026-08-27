@@ -29,12 +29,12 @@ Obrigatórios: o input `ecr-repository` e o secret `AWS_ROLE_ARN`. Os demais tem
 
 O `ecr-repository` é o caminho **dentro** do registry, sem o host — `togglemaster/flag-service`. O host vem do `amazon-ecr-login` em tempo de execução.
 
-## Os cinco jobs e a ordem entre eles
+## Os quatro jobs e a ordem entre eles
 
 ```
 build-test ──┬── lint          (não bloqueia)
              │
-             └── security ──── docker ──── ecr-push
+             └── security ──── image
 ```
 
 | job | o que faz | reprova a esteira? |
@@ -42,8 +42,7 @@ build-test ──┬── lint          (não bloqueia)
 | `build-test` | instala dependências, `compileall`, e `pytest` se houver teste | **sim** |
 | `lint` | `ruff check` | **não** — tem `continue-on-error` |
 | `security` | `bandit` (SAST) e `trivy fs` (SCA) | **sim**, só o Trivy |
-| `docker` | build local da imagem e `trivy image` | **sim** |
-| `ecr-push` | autentica por OIDC, faz login no ECR e publica | **sim** |
+| `image` | autentica por OIDC, constroi, escaneia com `trivy image` e publica | **sim** |
 
 ## Teste opcional, e por quê
 
@@ -81,7 +80,7 @@ Quem barra é o Trivy, nas duas frentes: dependência declarada e pacote do sist
 
 ## Autenticação: nenhuma chave estática
 
-O `ecr-push` assume a role por OIDC:
+O job `image` assume a role por OIDC antes de construir:
 
 ```yaml
 permissions:
@@ -104,10 +103,20 @@ Mecanismo detalhado: [documentação de OIDC do `togglemaster-iac`](https://gith
 
 Testes, se houver, nomeados `test_*.py` ou `*_test.py` — o `pytest` roda só quando esse padrão é encontrado.
 
-## Duas coisas que ainda não estão aqui
+## Uma construção, um artefato
 
-**A imagem é construída duas vezes.** O job `docker` monta e escaneia localmente; o `ecr-push` monta de novo, com `push: true`. Jobs distintos rodam em runners distintos, e a imagem carregada no primeiro não existe no segundo — então o artefato escaneado não é literalmente o publicado.
+O job `image` constrói, escaneia e publica **na mesma execução**, e as três etapas apontam para a mesma referência resolvida uma única vez:
 
-**Não há etapa de CD.** A Fase 3 pede que o fim do CI atualize a tag da imagem no repositório GitOps. Ainda não existe — está previsto como `cd.yaml`.
+```yaml
+- name: Resolve image URI
+  id: img
+  run: echo "uri=${{ steps.login-ecr.outputs.registry }}/${{ inputs.ecr-repository }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+```
 
-A tag publicada hoje é o `github.sha` completo, enquanto o [README do repositório](../../README.md) descreve o formato `v<versão>-<commit-curto>`.
+O push usa `docker push`, e não `build-push-action` com `push: true`. A diferença importa: o segundo dispararia uma **nova construção**, e o que fosse publicado não seria o binário que passou pelo scan.
+
+Com build e push em jobs separados isso era inevitável — cada job roda no seu runner, e a imagem carregada num não existe no outro.
+
+## O que ainda não está aqui
+
+**A etapa de CD.** A Fase 3 pede que o fim do CI atualize a tag da imagem no repositório GitOps. Isso será um workflow separado, ainda não escrito.
