@@ -1,0 +1,35 @@
+# Exemplo de caller do workflow go-ci.
+#
+# Copie para .github/workflows/ do microsservico em Go e ajuste os valores.
+# Este arquivo e referencia: um caller nao roda isolado, precisa do secret e da
+# conta AWS do repositorio que o hospeda.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Declaradas tambem no workflow chamado; repetir aqui deixa explicito que este
+# repositorio autoriza a emissao do token OIDC.
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    uses: fiap-tech-challenge-devops/reusable-workflows/.github/workflows/go-ci.yml@v1.1.1
+    with:
+      # Caminho dentro do registry, sem o host. O host vem do ecr-login.
+      ecr-repository: togglemaster/auth-service
+      go-version: "1.21"
+    secrets:
+      # ARN da role, nao uma credencial. Criada pelo stage bootstrap do
+      # togglemaster-iac e compartilhada pelos cinco servicos.
+      AWS_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN }}
