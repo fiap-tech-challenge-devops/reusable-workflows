@@ -119,4 +119,6 @@ Com build e push em jobs separados isso era inevitável — cada job roda no seu
 
 ## O que ainda não está aqui
 
-**A etapa de CD.** A Fase 3 pede que o fim do CI atualize a tag da imagem no repositório GitOps. Isso será um workflow separado, ainda não escrito.
+**A etapa de CD.** Esta esteira publica a imagem no ECR — inclusive em pull request, de propósito, para que o artefato publicado seja o mesmo que os scans auditaram.
+
+Apontar o cluster para uma imagem é outra coisa, e será um workflow separado: ele atualiza a tag em `apps/<serviço>/values.yaml` no repositório GitOps, apenas em push para `main`. Ainda não escrito.

@@ -159,11 +159,21 @@ Os repositórios ECR são criados com `IMMUTABLE`: uma tag publicada não pode s
 
 O build também é único: o job `image` constrói, escaneia e publica na mesma execução, com `docker push` em vez de uma segunda construção. O binário auditado é o binário publicado.
 
-## O estágio de CD
+## A divisão entre CI e CD
 
-Após o push da imagem, o workflow de CD atualiza a tag em `apps/<serviço>/values.yaml` no repositório [`togglemaster-gitops`](https://github.com/fiap-tech-challenge-devops/togglemaster-gitops). O Argo CD detecta o commit e sincroniza o cluster.
+A fronteira está em **publicar a imagem** versus **apontar o cluster para ela**.
 
-O CD roda apenas em push para `main`. Pull Requests executam CI completo, incluindo build de imagem e scans, mas não promovem nada.
+| | CI (`go-ci`, `python-ci`) | CD (previsto) |
+|---|---|---|
+| Roda em | pull request **e** push para `main` | apenas push para `main` |
+| Faz | build, teste, lint, scans, e **publica a imagem no ECR** | atualiza a tag em `apps/<serviço>/values.yaml` no [`togglemaster-gitops`](https://github.com/fiap-tech-challenge-devops/togglemaster-gitops) |
+| Efeito no cluster | nenhum | o Argo CD detecta o commit e sincroniza |
+
+**O CI publica a imagem também em pull request**, e isso é deliberado: a imagem no ECR é o artefato que os scans auditaram. Construir em PR e publicar só depois do merge significaria publicar um binário diferente do que passou pelo gate — exatamente o problema que a consolidação do job `image` resolveu.
+
+Publicar cedo não expõe nada: as tags são o SHA do commit e os repositórios são `IMMUTABLE`, então uma imagem de PR não pode sobrescrever nada nem ser confundida com outra. Ela simplesmente existe no registry sem que ninguém aponte para ela.
+
+Quem decide o que roda é o CD, e só ele — a promoção acontece quando a tag muda no repositório GitOps, nunca por um push no ECR.
 
 ## Segredos necessários
 
