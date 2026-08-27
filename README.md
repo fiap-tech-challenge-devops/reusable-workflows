@@ -140,28 +140,53 @@ A referência é uma **tag**, não `main`: um commit aqui não deve alterar o co
 
 | Estágio | Go | Python |
 |---|---|---|
-| **Build & test** | `go build`, `go test` | `pytest` |
-| **Lint** | `golangci-lint` | `flake8` |
-| **Segurança** | `gitleaks`, `horusec`, `trivy fs` | idem |
-| **Imagem** | `docker buildx`, `trivy image`, SBOM, push no ECR | idem |
+| **Build & test** | `go build`, `go test` | `compileall`, `pytest` se houver teste |
+| **Lint** | `golangci-lint` | `ruff` |
+| **Segurança** | `gitleaks`, `gosec`, `trivy fs` | `gitleaks`, `bandit`, `trivy fs` |
+| **Imagem** | build, `trivy image` e `docker push`, num job só | idem |
 
 ### O gate de segurança
 
 Vulnerabilidade de severidade **CRITICAL** falha o pipeline imediatamente. Não há aprovação manual que contorne — o build não produz imagem.
 
-As três ferramentas cobrem frentes distintas: `gitleaks` procura segredos versionados, `horusec` faz SAST no código (encapsulando `gosec` e `bandit`, o que permite uma configuração só para as duas linguagens) e `trivy fs` faz SCA nas dependências. Depois do build, `trivy image` escaneia a imagem montada, incluindo os pacotes do sistema-base que a análise de código-fonte não enxerga.
+Três frentes distintas, e nenhuma cobre a do lado:
+
+| ferramenta | procura | reprova? |
+|---|---|---|
+| `gitleaks` | **segredo versionado** — chave commitada por engano | sim |
+| `gosec` / `bandit` | SAST — padrão inseguro no código | não, só reporta |
+| `trivy fs` | SCA — CVE nas dependências declaradas | sim, em `CRITICAL` |
+| `trivy image` | CVE na imagem montada, incluindo o sistema-base | sim, em `CRITICAL` |
+
+O SAST não reprova de propósito: a taxa de falso positivo é alta o bastante para travar a esteira por engano, e uma ferramenta que se aprende a ignorar não protege ninguém. Ele reporta, você lê.
+
+O `gitleaks` roda pelo binário oficial, que é MIT. A action `gitleaks/gitleaks-action` mudou de licença na v2 e exige `GITLEAKS_LICENSE` em conta de organização; o binário evita esse secret. O `--redact` impede o valor encontrado de aparecer no log — em repositório público, o log é visível para qualquer pessoa.
+
+**Sobre o Horusec:** o desenho original previa Horusec no lugar de `gosec` e `bandit`, para ter uma configuração só nas duas linguagens. A implementação chamou as ferramentas nativas direto. A cobertura de SAST é equivalente; o que se perdeu foi a unificação, em troca do ajuste fino que cada uma oferece.
 
 ### Tag da imagem
 
-Formato `v<versão>-<commit-curto>`, por exemplo `v1.0.0-a1b2c3d`.
+O SHA completo do commit — `${{ github.sha }}`, quarenta caracteres. Uma imagem é sempre rastreável até o commit exato que a originou, sem tabela de correspondência no meio.
 
-Os repositórios ECR são criados com `IMMUTABLE`: uma tag publicada não pode ser reapontada. Isso garante que a imagem auditada na esteira é exatamente a que roda no cluster.
+Os repositórios ECR são criados com `IMMUTABLE`: uma tag publicada não pode ser reapontada. Somado ao SHA como tag, isso fecha a rastreabilidade — a imagem auditada na esteira é exatamente a que roda no cluster, e ninguém consegue trocar o conteúdo por baixo dela.
 
-## O estágio de CD
+O build também é único: o job `image` constrói, escaneia e publica na mesma execução, com `docker push` em vez de uma segunda construção. O binário auditado é o binário publicado.
 
-Após o push da imagem, o workflow de CD atualiza a tag em `apps/<serviço>/values.yaml` no repositório [`togglemaster-gitops`](https://github.com/fiap-tech-challenge-devops/togglemaster-gitops). O Argo CD detecta o commit e sincroniza o cluster.
+## A divisão entre CI e CD
 
-O CD roda apenas em push para `main`. Pull Requests executam CI completo, incluindo build de imagem e scans, mas não promovem nada.
+A fronteira está em **publicar a imagem** versus **apontar o cluster para ela**.
+
+| | CI (`go-ci`, `python-ci`) | CD (previsto) |
+|---|---|---|
+| Roda em | pull request **e** push para `main` | apenas push para `main` |
+| Faz | build, teste, lint, scans, e **publica a imagem no ECR** | atualiza a tag em `apps/<serviço>/values.yaml` no [`togglemaster-gitops`](https://github.com/fiap-tech-challenge-devops/togglemaster-gitops) |
+| Efeito no cluster | nenhum | o Argo CD detecta o commit e sincroniza |
+
+**O CI publica a imagem também em pull request**, e isso é deliberado: a imagem no ECR é o artefato que os scans auditaram. Construir em PR e publicar só depois do merge significaria publicar um binário diferente do que passou pelo gate — exatamente o problema que a consolidação do job `image` resolveu.
+
+Publicar cedo não expõe nada: as tags são o SHA do commit e os repositórios são `IMMUTABLE`, então uma imagem de PR não pode sobrescrever nada nem ser confundida com outra. Ela simplesmente existe no registry sem que ninguém aponte para ela.
+
+Quem decide o que roda é o CD, e só ele — a promoção acontece quando a tag muda no repositório GitOps, nunca por um push no ECR.
 
 ## Segredos necessários
 

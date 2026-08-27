@@ -14,8 +14,15 @@ on:
         required: true
         type: string
 
+      aws-region:
+        description: "Regiao da AWS onde o registry ECR vive"
+        required: false
+        type: string
+        default: "us-east-1"
+
     secrets:
       AWS_ROLE_ARN:
+        description: "ARN da role assumida por federacao OIDC para publicar no ECR. Nao e uma credencial."
         required: true
 
 permissions:
@@ -29,10 +36,10 @@ jobs:
 
     steps:
       - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
@@ -70,10 +77,10 @@ jobs:
 
     steps:
       - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python-version }}
 
@@ -90,12 +97,21 @@ jobs:
 
     steps:
       - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python-version }}
+
+      - name: Instalar Gitleaks
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      - name: Executar Gitleaks
+        run: gitleaks dir . --redact --verbose --exit-code 1
 
       - name: Instalar Bandit
         run: pip install bandit
@@ -105,7 +121,7 @@ jobs:
         run: bandit -r . -ll
 
       - name: Executar Trivy SCA
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -113,57 +129,46 @@ jobs:
           exit-code: "1"
           severity: CRITICAL
 
-  docker:
-    name: Docker Build and Container Scan
+  image:
+    name: Build, Scan and Push Image
     runs-on: ubuntu-latest
     needs:
       - build-test
       - security
 
     steps:
-      - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
+      - name: Checkout source code
+        uses: actions/checkout@v7
 
-      - name: Build da imagem Docker
-        uses: docker/build-push-action@v6
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ inputs.aws-region }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Resolve image URI
+        id: img
+        run: echo "uri=${{ steps.login-ecr.outputs.registry }}/${{ inputs.ecr-repository }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
           load: true
-          tags: ${{ inputs.ecr-repository }}:${{ github.sha }}
+          tags: ${{ steps.img.outputs.uri }}
 
-      - name: Scan da imagem com Trivy
-        uses: aquasecurity/trivy-action@0.35.0
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ inputs.ecr-repository }}:${{ github.sha }}
+          image-ref: ${{ steps.img.outputs.uri }}
           format: table
           exit-code: "1"
           severity: CRITICAL
 
-  ecr-push:
-    name: Push Image to Amazon ECR
-    runs-on: ubuntu-latest
-    needs:
-      - docker
-
-    steps:
-      - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
-
-      - name: Configurar credenciais AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
-
-      - name: Login no Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build e Push da imagem Docker
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: |
-            ${{ steps.login-ecr.outputs.registry }}/${{ inputs.ecr-repository }}:${{ github.sha }}
+      - name: Push to Amazon ECR
+        run: docker push ${{ steps.img.outputs.uri }}
