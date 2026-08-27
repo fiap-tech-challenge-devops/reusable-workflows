@@ -16,6 +16,7 @@ jobs:
     with:
       ecr-repository: togglemaster/flag-service
       python-version: "3.9"
+      aws-region: us-east-1
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN }}
 ```
@@ -24,7 +25,7 @@ jobs:
 
 A lista completa está no bloco `on.workflow_call` de [`python-ci.yml`](../../.github/workflows/python-ci.yml).
 
-Obrigatórios: o input `ecr-repository` e o secret `AWS_ROLE_ARN`. O `python-version` tem default `3.9`.
+Obrigatórios: o input `ecr-repository` e o secret `AWS_ROLE_ARN`. Os demais tem default: `python-version` e `3.9` e `aws-region` e `us-east-1`.
 
 O `ecr-repository` é o caminho **dentro** do registry, sem o host — `togglemaster/flag-service`. O host vem do `amazon-ecr-login` em tempo de execução.
 

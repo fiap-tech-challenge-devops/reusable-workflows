@@ -14,8 +14,15 @@ on:
         required: true
         type: string
 
+      aws-region:
+        description: "Regiao da AWS onde o registry ECR vive"
+        required: false
+        type: string
+        default: "us-east-1"
+
     secrets:
       AWS_ROLE_ARN:
+        description: "ARN da role assumida por federacao OIDC para publicar no ECR. Nao e uma credencial."
         required: true
 
 permissions:
@@ -29,10 +36,10 @@ jobs:
 
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ inputs.go-version }}
           cache: true
@@ -54,16 +61,16 @@ jobs:
 
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: ${{ inputs.go-version }}
           cache: true
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
 
@@ -74,17 +81,17 @@ jobs:
 
       steps:
         - name: Checkout source code
-          uses: actions/checkout@v4
+          uses: actions/checkout@v7
 
        
         - name: Run Gosec Security Scanner
           continue-on-error: true
-          uses: securego/gosec@master
+          uses: securego/gosec@v2.29.0
           with:
             args: -severity high ./...
 
         - name: Run Trivy vulnerability scanner in fs mode
-          uses: aquasecurity/trivy-action@master
+          uses: aquasecurity/trivy-action@v0.36.0
           with:
             scan-type: 'fs'
             scan-ref: '.'
@@ -101,20 +108,20 @@ jobs:
 
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
           load: true
-          tags: auth-service:${{ github.sha }}
+          tags: ${{ inputs.ecr-repository }}:${{ github.sha }}
 
       - name: Scan Docker image with Trivy
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: auth-service:${{ github.sha }}
+          image-ref: ${{ inputs.ecr-repository }}:${{ github.sha }}
           format: table
           exit-code: "1"
           severity: CRITICAL
@@ -127,20 +134,20 @@ jobs:
 
     steps:
       - name: Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ inputs.aws-region }}
 
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build and push Docker image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true

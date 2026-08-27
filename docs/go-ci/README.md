@@ -16,6 +16,7 @@ jobs:
     with:
       ecr-repository: togglemaster/auth-service
       go-version: "1.21"
+      aws-region: us-east-1
     secrets:
       AWS_ROLE_ARN: ${{ secrets.AWS_OIDC_ROLE_ARN }}
 ```
@@ -24,7 +25,7 @@ jobs:
 
 A lista completa está no bloco `on.workflow_call` de [`go-ci.yml`](../../.github/workflows/go-ci.yml).
 
-Obrigatórios: o input `ecr-repository` e o secret `AWS_ROLE_ARN`. O `go-version` tem default `1.21`.
+Obrigatórios: o input `ecr-repository` e o secret `AWS_ROLE_ARN`. Os demais tem default: `go-version` e `1.21` e `aws-region` e `us-east-1`.
 
 O `ecr-repository` é o caminho **dentro** do registry, sem o host — `togglemaster/auth-service`, não `762103020993.dkr.ecr.us-east-1.amazonaws.com/togglemaster/auth-service`. O host vem do `amazon-ecr-login` em tempo de execução.
 

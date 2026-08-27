@@ -29,6 +29,7 @@ jobs:
       # Caminho dentro do registry, sem o host. O host vem do ecr-login.
       ecr-repository: togglemaster/flag-service
       python-version: "3.9"
+      aws-region: us-east-1
     secrets:
       # ARN da role, nao uma credencial. Criada pelo stage bootstrap do
       # togglemaster-iac e compartilhada pelos cinco servicos.

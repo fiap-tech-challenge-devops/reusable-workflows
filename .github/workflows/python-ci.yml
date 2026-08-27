@@ -14,8 +14,15 @@ on:
         required: true
         type: string
 
+      aws-region:
+        description: "Regiao da AWS onde o registry ECR vive"
+        required: false
+        type: string
+        default: "us-east-1"
+
     secrets:
       AWS_ROLE_ARN:
+        description: "ARN da role assumida por federacao OIDC para publicar no ECR. Nao e uma credencial."
         required: true
 
 permissions:
@@ -29,10 +36,10 @@ jobs:
 
     steps:
       - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python-version }}
           cache: pip
@@ -70,10 +77,10 @@ jobs:
 
     steps:
       - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python-version }}
 
@@ -90,10 +97,10 @@ jobs:
 
     steps:
       - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ inputs.python-version }}
 
@@ -105,7 +112,7 @@ jobs:
         run: bandit -r . -ll
 
       - name: Executar Trivy SCA
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -122,10 +129,10 @@ jobs:
 
     steps:
       - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Build da imagem Docker
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
@@ -133,7 +140,7 @@ jobs:
           tags: ${{ inputs.ecr-repository }}:${{ github.sha }}
 
       - name: Scan da imagem com Trivy
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ inputs.ecr-repository }}:${{ github.sha }}
           format: table
@@ -148,20 +155,20 @@ jobs:
 
     steps:
       - name: Checkout do codigo fonte
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Configurar credenciais AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: us-east-1
+          aws-region: ${{ inputs.aws-region }}
 
       - name: Login no Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
       - name: Build e Push da imagem Docker
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
