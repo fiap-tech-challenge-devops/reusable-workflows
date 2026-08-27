@@ -41,7 +41,7 @@ build-test ──┬── lint          (não bloqueia)
 |---|---|---|
 | `build-test` | `go mod download`, `go build ./...`, `go test ./...` | **sim** |
 | `lint` | `golangci-lint` | **não** — tem `continue-on-error` |
-| `Security` | `gosec` (SAST) e `trivy fs` (SCA) | **sim**, só o Trivy |
+| `Security` | `gitleaks` (segredos), `gosec` (SAST) e `trivy fs` (SCA) | **sim**, o Gitleaks e o Trivy |
 | `image` | autentica por OIDC, constroi, escaneia com `trivy image` e publica | **sim** |
 
 O `lint` roda em paralelo com o `Security` e não é dependência de ninguém — o `image` espera apenas `build-test` e `Security`. Estilo de código não impede uma imagem de subir; vulnerabilidade impede.
@@ -52,9 +52,14 @@ Este é o ponto da Fase 3, e a regra é explícita: **vulnerabilidade CRITICAL r
 
 | ferramenta | frente | reprova? |
 |---|---|---|
+| `gitleaks` | segredo versionado | **sim** |
 | `gosec` | SAST — código-fonte | não (`continue-on-error`) |
 | `trivy fs` | SCA — dependências | **sim**, em `CRITICAL` |
 | `trivy image` | imagem montada, incluindo o sistema-base | **sim**, em `CRITICAL` |
+
+O `gitleaks` cobre a frente que nenhuma das outras alcanca: **segredo versionado**. SAST le o codigo procurando padrao inseguro, SCA le dependencia procurando CVE — nenhum dos dois procura uma chave de API commitada por engano.
+
+Ele roda pelo binario oficial, que e MIT. A action `gitleaks/gitleaks-action` mudou de licenca na v2 e exige `GITLEAKS_LICENSE` para conta de organizacao; usar o binario evita esse secret. O `--redact` impede o valor encontrado de aparecer no log do run, que em repositorio publico e visivel para qualquer pessoa.
 
 As três cobrem camadas diferentes. O `trivy image` é o que pega vulnerabilidade em pacote do sistema operacional da imagem-base — coisa que nenhuma análise de código-fonte enxerga.
 

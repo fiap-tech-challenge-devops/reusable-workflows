@@ -104,6 +104,19 @@ jobs:
         with:
           python-version: ${{ inputs.python-version }}
 
+# Binario oficial (MIT). A action gitleaks/gitleaks-action mudou para
+      # licenca propria na v2 e exige GITLEAKS_LICENSE em conta de organizacao.
+      - name: Instalar Gitleaks
+        run: |
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin gitleaks
+          gitleaks version
+
+      # Unico scanner que procura SEGREDO VERSIONADO. Nem gosec, nem bandit,
+      # nem trivy cobrem essa frente. Reprova: falso positivo aqui e raro.
+      - name: Executar Gitleaks
+        run: gitleaks dir . --redact --verbose --exit-code 1
+
       - name: Instalar Bandit
         run: pip install bandit
 

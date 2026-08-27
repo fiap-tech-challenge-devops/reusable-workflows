@@ -140,16 +140,29 @@ A referência é uma **tag**, não `main`: um commit aqui não deve alterar o co
 
 | Estágio | Go | Python |
 |---|---|---|
-| **Build & test** | `go build`, `go test` | `pytest` |
-| **Lint** | `golangci-lint` | `flake8` |
-| **Segurança** | `gitleaks`, `horusec`, `trivy fs` | idem |
-| **Imagem** | `docker buildx`, `trivy image`, SBOM, push no ECR | idem |
+| **Build & test** | `go build`, `go test` | `compileall`, `pytest` se houver teste |
+| **Lint** | `golangci-lint` | `ruff` |
+| **Segurança** | `gitleaks`, `gosec`, `trivy fs` | `gitleaks`, `bandit`, `trivy fs` |
+| **Imagem** | build, `trivy image` e `docker push`, num job só | idem |
 
 ### O gate de segurança
 
 Vulnerabilidade de severidade **CRITICAL** falha o pipeline imediatamente. Não há aprovação manual que contorne — o build não produz imagem.
 
-As três ferramentas cobrem frentes distintas: `gitleaks` procura segredos versionados, `horusec` faz SAST no código (encapsulando `gosec` e `bandit`, o que permite uma configuração só para as duas linguagens) e `trivy fs` faz SCA nas dependências. Depois do build, `trivy image` escaneia a imagem montada, incluindo os pacotes do sistema-base que a análise de código-fonte não enxerga.
+Três frentes distintas, e nenhuma cobre a do lado:
+
+| ferramenta | procura | reprova? |
+|---|---|---|
+| `gitleaks` | **segredo versionado** — chave commitada por engano | sim |
+| `gosec` / `bandit` | SAST — padrão inseguro no código | não, só reporta |
+| `trivy fs` | SCA — CVE nas dependências declaradas | sim, em `CRITICAL` |
+| `trivy image` | CVE na imagem montada, incluindo o sistema-base | sim, em `CRITICAL` |
+
+O SAST não reprova de propósito: a taxa de falso positivo é alta o bastante para travar a esteira por engano, e uma ferramenta que se aprende a ignorar não protege ninguém. Ele reporta, você lê.
+
+O `gitleaks` roda pelo binário oficial, que é MIT. A action `gitleaks/gitleaks-action` mudou de licença na v2 e exige `GITLEAKS_LICENSE` em conta de organização; o binário evita esse secret. O `--redact` impede o valor encontrado de aparecer no log — em repositório público, o log é visível para qualquer pessoa.
+
+**Sobre o Horusec:** o desenho original previa Horusec no lugar de `gosec` e `bandit`, para ter uma configuração só nas duas linguagens. A implementação chamou as ferramentas nativas direto. A cobertura de SAST é equivalente; o que se perdeu foi a unificação, em troca do ajuste fino que cada uma oferece.
 
 ### Tag da imagem
 

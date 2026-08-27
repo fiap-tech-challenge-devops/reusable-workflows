@@ -41,7 +41,7 @@ build-test ──┬── lint          (não bloqueia)
 |---|---|---|
 | `build-test` | instala dependências, `compileall`, e `pytest` se houver teste | **sim** |
 | `lint` | `ruff check` | **não** — tem `continue-on-error` |
-| `security` | `bandit` (SAST) e `trivy fs` (SCA) | **sim**, só o Trivy |
+| `security` | `gitleaks` (segredos), `bandit` (SAST) e `trivy fs` (SCA) | **sim**, o Gitleaks e o Trivy |
 | `image` | autentica por OIDC, constroi, escaneia com `trivy image` e publica | **sim** |
 
 ## Teste opcional, e por quê
@@ -70,9 +70,14 @@ A alternativa seria reprovar quem não tem teste. O enunciado da Fase 3 pede tes
 
 | ferramenta | frente | reprova? |
 |---|---|---|
+| `gitleaks` | segredo versionado | **sim** |
 | `bandit` | SAST — código-fonte | não (`continue-on-error`) |
 | `trivy fs` | SCA — dependências do `requirements.txt` | **sim**, em `CRITICAL` |
 | `trivy image` | imagem montada, incluindo o sistema-base | **sim**, em `CRITICAL` |
+
+O `gitleaks` cobre a frente que nenhuma das outras alcanca: **segredo versionado**. SAST le o codigo procurando padrao inseguro, SCA le dependencia procurando CVE — nenhum dos dois procura uma chave de API commitada por engano.
+
+Ele roda pelo binario oficial, que e MIT. A action `gitleaks/gitleaks-action` mudou de licenca na v2 e exige `GITLEAKS_LICENSE` para conta de organizacao; usar o binario evita esse secret. O `--redact` impede o valor encontrado de aparecer no log do run, que em repositorio publico e visivel para qualquer pessoa.
 
 O `bandit -ll` filtra por severidade média para cima. Ele não reprova de propósito: SAST em Python acusa muito padrão que é intencional (`subprocess`, `assert` em teste), e travar por isso viraria ruído que se aprende a ignorar — o pior resultado possível para uma ferramenta de segurança.
 
