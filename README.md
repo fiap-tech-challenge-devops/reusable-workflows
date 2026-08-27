@@ -33,9 +33,16 @@ Faz parte de um conjunto de quatro repositórios:
 | `terraform-plan` | reusable workflow | [docs/terraform-plan/](docs/terraform-plan/) |
 | `terraform-apply` | reusable workflow | [docs/terraform-apply/](docs/terraform-apply/) |
 | `terraform-destroy` | reusable workflow | [docs/terraform-destroy/](docs/terraform-destroy/) |
+| `go-ci` | reusable workflow | [docs/go-ci/](docs/go-ci/) |
+| `python-ci` | reusable workflow | [docs/python-ci/](docs/python-ci/) |
 | `terraform-plan-summary` | composite action | [actions/terraform-plan-summary/](actions/terraform-plan-summary/) |
 
-Previstos: `go-ci`, `python-ci` e `cd` para os cinco microsserviços.
+Previsto: `cd` — promoção da imagem no repositório GitOps ao fim do CI.
+
+| serviço | esteira |
+|---|---|
+| `auth-service`, `evaluation-service` | [`go-ci`](docs/go-ci/) |
+| `flag-service`, `targeting-service`, `analytics-service` | [`python-ci`](docs/python-ci/) |
 
 O `plan` roda os stages em **matriz** — a ordem é irrelevante e paralelo é vantagem. O `apply` e o `destroy` aplicam **um stage por chamada**, e a ordem fica no caller com `needs:`, porque matriz não encadeia dependência.
 
@@ -59,7 +66,9 @@ docs/                     ← documentação dos workflows, que não cabe junto 
 │   ├── README.md
 │   └── example/caller.yml
 ├── terraform-apply/
-└── terraform-destroy/
+├── terraform-destroy/
+├── go-ci/
+└── python-ci/
 ```
 
 A assimetria entre `actions/` e `docs/` não é escolha: um reusable workflow é obrigado a morar plano em `.github/workflows/`, então a documentação dele vai para uma pasta paralela. Actions podem morar em qualquer lugar e ficam com tudo junto, como os módulos do [`terraform-aws-modules`](https://github.com/fiap-tech-challenge-devops/terraform-aws-modules).
