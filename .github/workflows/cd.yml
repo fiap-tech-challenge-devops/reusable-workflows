@@ -1,0 +1,204 @@
+name: CD
+
+on:
+  workflow_call:
+    inputs:
+      service-name:
+        description: Nome do microsserviço, igual ao diretório do app e ao nome do arquivo em apps/
+        required: true
+        type: string
+      image-repository:
+        description: Repositorio completo da imagem no ECR, incluindo registry e nome do repositorio
+        required: true
+        type: string
+      image-tag:
+        description: Tag da imagem publicada no ECR, normalmente o SHA do commit
+        required: true
+        type: string
+      gitops-repository:
+        description: Repositorio GitOps alvo
+        required: false
+        type: string
+        default: fiap-tech-challenge-devops/togglemaster-gitops
+      gitops-branch:
+        description: Branch do repositorio GitOps
+        required: false
+        type: string
+        default: main
+      environment:
+        description: Ambiente em values-<ambiente>.yaml
+        required: false
+        type: string
+        default: prod
+    secrets:
+      GITOPS_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: Promote image to GitOps
+    runs-on: ubuntu-latest
+    env:
+      GITOPS_DIR: gitops
+      TARGET_FILE: gitops/apps/${{ inputs.service-name }}/values-${{ inputs.environment }}.yaml
+
+    steps:
+      - name: Checkout GitOps repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.gitops-repository }}
+          ref: ${{ inputs.gitops-branch }}
+          token: ${{ secrets.GITOPS_TOKEN }}
+          path: gitops
+
+      - name: Display deployment context
+        shell: bash
+        run: |
+          echo "## 🚀 GitOps Deployment Promotion" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Context" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Service: ${{ inputs.service-name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: ${{ inputs.image-repository }}:${{ inputs.image-tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: ${{ inputs.environment }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- GitOps repo: ${{ inputs.gitops-repository }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- GitOps branch: ${{ inputs.gitops-branch }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target file: ${TARGET_FILE}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Service: ${{ inputs.service-name }}"
+          echo "Image: ${{ inputs.image-repository }}:${{ inputs.image-tag }}"
+          echo "Environment: ${{ inputs.environment }}"
+          echo "GitOps file: ${TARGET_FILE}"
+
+      - name: Validate target values file
+        shell: bash
+        env:
+          SERVICE_NAME: ${{ inputs.service-name }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          FILE="gitops/apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
+          if [ ! -f "$FILE" ]; then
+            echo "Arquivo de values não encontrado: $FILE"
+            exit 1
+          fi
+
+          echo "✅ Arquivo de valores encontrado: $FILE"
+          echo "📌 Promovendo ${SERVICE_NAME} para o ambiente ${ENVIRONMENT}"
+
+      - name: Check current image configuration
+        shell: bash
+        env:
+          SERVICE_NAME: ${{ inputs.service-name }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          FILE="gitops/apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
+          echo "Current values file:" 
+          sed -n '1,220p' "$FILE" | grep -nE 'image:|repository:|tag:|name:' || true
+
+      - name: Update image tag in values file
+        shell: bash
+        env:
+          SERVICE_NAME: ${{ inputs.service-name }}
+          IMAGE_REPOSITORY: ${{ inputs.image-repository }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          FILE="gitops/apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
+          export FILE
+          python3 - <<'PY'
+          import os, pathlib
+          try:
+              import yaml
+          except ModuleNotFoundError:
+              import subprocess, sys
+              subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pyyaml'], stdout=subprocess.DEVNULL)
+              import yaml
+
+          path = pathlib.Path(os.environ['FILE'])
+          with path.open('r', encoding='utf-8') as fh:
+              data = yaml.safe_load(fh) or {}
+
+          data.setdefault('image', {})
+          data['image']['repository'] = os.environ['IMAGE_REPOSITORY']
+          data['image']['tag'] = os.environ['IMAGE_TAG']
+
+          with path.open('w', encoding='utf-8') as fh:
+              yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
+
+          print(f"Updated {path} with {os.environ['IMAGE_REPOSITORY']}:{os.environ['IMAGE_TAG']}")
+          PY
+
+      - name: Validate YAML after update
+        shell: bash
+        env:
+          SERVICE_NAME: ${{ inputs.service-name }}
+          IMAGE_REPOSITORY: ${{ inputs.image-repository }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          FILE="gitops/apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
+          python3 - <<'PY'
+          import os, pathlib
+          try:
+              import yaml
+          except ModuleNotFoundError:
+              import subprocess, sys
+              subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pyyaml'], stdout=subprocess.DEVNULL)
+              import yaml
+
+          path = pathlib.Path(os.environ['FILE'])
+          with path.open('r', encoding='utf-8') as fh:
+              data = yaml.safe_load(fh) or {}
+
+          image = data.get('image', {})
+          if not isinstance(image, dict):
+              raise SystemExit('image block not found or invalid')
+
+          repository = image.get('repository')
+          tag = image.get('tag')
+          if not repository or not tag:
+              raise SystemExit('repository or tag missing from image block')
+
+          print(f"✅ YAML validation passed: {repository}:{tag}")
+          PY
+
+      - name: Commit and push promotion
+        shell: bash
+        env:
+          SERVICE_NAME: ${{ inputs.service-name }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          FILE="gitops/apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
+          git -C gitops config user.name "github-actions[bot]"
+          git -C gitops config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C gitops add "$FILE"
+
+          if git -C gitops diff --cached --quiet; then
+            echo "No change to promote. Image tag already present."
+            exit 0
+          fi
+
+          git -C gitops status --short
+          git -C gitops commit -m "chore: promote ${SERVICE_NAME} to ${IMAGE_TAG}"
+          git -C gitops push origin HEAD:${{ inputs.gitops-branch }}
+
+          echo "✅ GitOps promotion committed and pushed to branch ${{ inputs.gitops-branch }}"
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "### ✅ Deployment promoted" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Service: ${{ inputs.service-name }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: ${{ inputs.image-repository }}:${{ inputs.image-tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Environment: ${{ inputs.environment }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target file: gitops/apps/${{ inputs.service-name }}/values-${{ inputs.environment }}.yaml" >> "$GITHUB_STEP_SUMMARY"
+          echo "- GitOps repository: ${{ inputs.gitops-repository }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- GitOps branch: ${{ inputs.gitops-branch }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Argo CD will sync the cluster from this GitOps change." >> "$GITHUB_STEP_SUMMARY"
