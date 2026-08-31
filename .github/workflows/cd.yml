@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       GITOPS_DIR: gitops
-      TARGET_FILE: gitops/apps/${{ inputs.service-name }}/values-${{ inputs.environment }}.yaml
+      TARGET_FILE: apps/${{ inputs.service-name }}/values-${{ inputs.environment }}.yaml
 
     steps:
       - name: Checkout GitOps repository
@@ -79,13 +79,13 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -euo pipefail
-          FILE="gitops/apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
-          if [ ! -f "$FILE" ]; then
-            echo "Arquivo de values não encontrado: $FILE"
+          FILE="apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
+          if [ ! -f "gitops/$FILE" ]; then
+            echo "Arquivo de values não encontrado: gitops/$FILE"
             exit 1
           fi
 
-          echo "✅ Arquivo de valores encontrado: $FILE"
+          echo "✅ Arquivo de valores encontrado: gitops/$FILE"
           echo "📌 Promovendo ${SERVICE_NAME} para o ambiente ${ENVIRONMENT}"
 
       - name: Check current image configuration
@@ -94,9 +94,9 @@ jobs:
           SERVICE_NAME: ${{ inputs.service-name }}
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
-          FILE="gitops/apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
-          echo "Current values file:" 
-          sed -n '1,220p' "$FILE" | grep -nE 'image:|repository:|tag:|name:' || true
+          FILE="apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
+          echo "Current values file:"
+          sed -n '1,220p' "gitops/$FILE" | grep -nE 'image:|repository:|tag:|name:' || true
 
       - name: Update image tag in values file
         shell: bash
@@ -107,7 +107,7 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -euo pipefail
-          FILE="gitops/apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
+          FILE="apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
           export FILE
           python3 - <<'PY'
           import os, pathlib
@@ -118,7 +118,7 @@ jobs:
               subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pyyaml'], stdout=subprocess.DEVNULL)
               import yaml
 
-          path = pathlib.Path(os.environ['FILE'])
+          path = pathlib.Path('gitops') / os.environ['FILE']
           with path.open('r', encoding='utf-8') as fh:
               data = yaml.safe_load(fh) or {}
 
@@ -139,7 +139,7 @@ jobs:
           IMAGE_REPOSITORY: ${{ inputs.image-repository }}
           IMAGE_TAG: ${{ inputs.image-tag }}
           ENVIRONMENT: ${{ inputs.environment }}
-          FILE: gitops/apps/${{ inputs.service-name }}/values-${{ inputs.environment }}.yaml
+          FILE: apps/${{ inputs.service-name }}/values-${{ inputs.environment }}.yaml
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -151,7 +151,7 @@ jobs:
               subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pyyaml'], stdout=subprocess.DEVNULL)
               import yaml
 
-          path = pathlib.Path(os.environ['FILE'])
+          path = pathlib.Path('gitops') / os.environ['FILE']
           with path.open('r', encoding='utf-8') as fh:
               data = yaml.safe_load(fh) or {}
 
@@ -175,7 +175,7 @@ jobs:
           ENVIRONMENT: ${{ inputs.environment }}
         run: |
           set -euo pipefail
-          FILE="gitops/apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
+          FILE="apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
           git -C gitops config user.name "github-actions[bot]"
           git -C gitops config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C gitops add "$FILE"
@@ -198,7 +198,7 @@ jobs:
           echo "- Service: ${{ inputs.service-name }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Image: ${{ inputs.image-repository }}:${{ inputs.image-tag }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Environment: ${{ inputs.environment }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Target file: gitops/apps/${{ inputs.service-name }}/values-${{ inputs.environment }}.yaml" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Target file: apps/${{ inputs.service-name }}/values-${{ inputs.environment }}.yaml" >> "$GITHUB_STEP_SUMMARY"
           echo "- GitOps repository: ${{ inputs.gitops-repository }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- GitOps branch: ${{ inputs.gitops-branch }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Argo CD will sync the cluster from this GitOps change." >> "$GITHUB_STEP_SUMMARY"
