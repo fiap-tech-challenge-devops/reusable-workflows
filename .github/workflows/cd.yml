@@ -110,25 +110,28 @@ jobs:
           FILE="apps/${SERVICE_NAME}/values-${ENVIRONMENT}.yaml"
           export FILE
           python3 - <<'PY'
-          import os, pathlib
-          try:
-              import yaml
-          except ModuleNotFoundError:
-              import subprocess, sys
-              subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pyyaml'], stdout=subprocess.DEVNULL)
-              import yaml
+          import os, pathlib, re
 
           path = pathlib.Path('gitops') / os.environ['FILE']
-          with path.open('r', encoding='utf-8') as fh:
-              data = yaml.safe_load(fh) or {}
+          text = path.read_text(encoding='utf-8')
 
-          data.setdefault('image', {})
-          data['image']['repository'] = os.environ['IMAGE_REPOSITORY']
-          data['image']['tag'] = os.environ['IMAGE_TAG']
+          text, repo_count = re.subn(
+              r'(?m)^(\s*repository:\s*).+$',
+              rf'\1{os.environ["IMAGE_REPOSITORY"]}',
+              text,
+              count=1
+          )
+          text, tag_count = re.subn(
+              r'(?m)^(\s*tag:\s*).+$',
+              rf'\1{os.environ["IMAGE_TAG"]}',
+              text,
+              count=1
+          )
 
-          with path.open('w', encoding='utf-8') as fh:
-              yaml.safe_dump(data, fh, sort_keys=False, default_flow_style=False)
+          if repo_count == 0 or tag_count == 0:
+              raise SystemExit('Could not find image.repository or image.tag in values file')
 
+          path.write_text(text, encoding='utf-8')
           print(f"Updated {path} with {os.environ['IMAGE_REPOSITORY']}:{os.environ['IMAGE_TAG']}")
           PY
 
