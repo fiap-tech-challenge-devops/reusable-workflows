@@ -117,13 +117,13 @@ jobs:
 
           text, repo_count = re.subn(
               r'(?m)^(\s*repository:\s*).+$',
-              rf'\1{os.environ["IMAGE_REPOSITORY"]}',
+              lambda match: f"{match.group(1)}{os.environ['IMAGE_REPOSITORY']}",
               text,
               count=1
           )
           text, tag_count = re.subn(
               r'(?m)^(\s*tag:\s*).+$',
-              rf'\1{os.environ["IMAGE_TAG"]}',
+              lambda match: f"{match.group(1)}{os.environ['IMAGE_TAG']}",
               text,
               count=1
           )
