@@ -73,6 +73,20 @@ jobs:
             -backend-config="region=${{ inputs.aws-region }}" \
             -backend-config="use_lockfile=true"
 
+      # Valores que não podem viver no repositório. O add-mask garante que
+      # não apareçam no log nem se o Terraform os ecoar.
+      - name: Exportar variáveis sensíveis do Terraform
+        env:
+          TF_VARS: ${{ secrets.tf-vars }}
+        run: |
+          if [ -n "$TF_VARS" ]; then
+            printf '%s\n' "$TF_VARS" | while IFS='=' read -r nome valor; do
+              [ -n "$nome" ] || continue
+              echo "::add-mask::$valor"
+              echo "TF_VAR_${nome}=${valor}" >> "$GITHUB_ENV"
+            done
+          fi
+
       # Para o log: mostra o que o apply vai fazer, no mesmo run e com o mesmo
       # state. Não é persistido nem reaproveitado.
       - name: Terraform plan
