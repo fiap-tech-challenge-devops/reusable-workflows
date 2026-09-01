@@ -118,6 +118,12 @@ jobs:
           kubectl delete nodepools.karpenter.sh --all --ignore-not-found --timeout=600s || true
           kubectl delete ec2nodeclasses.karpenter.k8s.aws --all --ignore-not-found --timeout=300s || true
 
+          # O operador do KEDA remove o finalizer dos seus CRs; se o Helm apagar
+          # o operador antes, os objetos ficam presos e a desinstalação trava.
+          echo "Removendo recursos do KEDA..."
+          kubectl delete scaledobjects.keda.sh --all --all-namespaces --ignore-not-found --timeout=120s || true
+          kubectl delete triggerauthentications.keda.sh --all --all-namespaces --ignore-not-found --timeout=120s || true
+
           # Tempo para os controllers processarem as remoções na AWS antes de o
           # Terraform tentar apagar a VPC.
           echo "Aguardando os controllers liberarem os recursos..."
