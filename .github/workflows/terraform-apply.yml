@@ -32,6 +32,14 @@ on:
         required: false
         default: "1.15.8"
 
+      summary-extra:
+        description: |
+          Markdown acrescentado ao resumo do job quando o apply termina com
+          sucesso. Serve para instruções de acesso ao que o stage provisionou.
+        type: string
+        required: false
+        default: ""
+
     secrets:
       aws-oidc-role-arn:
         description: "Role assumida por federação OIDC."
@@ -105,5 +113,10 @@ jobs:
 
       - name: Resumo
         if: always()
+        env:
+          EXTRA: ${{ inputs.summary-extra }}
         run: |
           echo "### Apply — \`${{ inputs.stage }}\` (${{ job.status }})" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ job.status }}" = "success" ] && [ -n "$EXTRA" ]; then
+            printf '%s\n' "$EXTRA" >> "$GITHUB_STEP_SUMMARY"
+          fi
