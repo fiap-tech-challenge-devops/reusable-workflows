@@ -37,6 +37,12 @@ on:
         description: "Role assumida por federação OIDC."
         required: true
 
+      tf-vars:
+        description: |
+          Variáveis do Terraform que não podem viver no repositório, uma por
+          linha, no formato NOME=valor. Viram TF_VAR_<nome> no ambiente do job.
+        required: false
+
 permissions:
   id-token: write
   contents: read
