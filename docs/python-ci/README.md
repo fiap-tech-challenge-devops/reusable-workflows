@@ -42,7 +42,7 @@ build-test ──┬── lint          (não bloqueia)
 | `build-test` | instala dependências, `compileall`, e `pytest` se houver teste | **sim** |
 | `lint` | `ruff check` | **não** — tem `continue-on-error` |
 | `security` | `gitleaks` (segredos), `bandit` (SAST) e `trivy fs` (SCA) | **sim**, o Gitleaks e o Trivy |
-| `image` | autentica por OIDC, constroi, escaneia com `trivy image` e publica | **sim** |
+| `image` | autentica por OIDC, constroi, escaneia com `trivy image` e publica (só no `push`) | **sim** |
 
 ## Teste opcional, e por quê
 
@@ -124,6 +124,6 @@ Com build e push em jobs separados isso era inevitável — cada job roda no seu
 
 ## O que ainda não está aqui
 
-**A etapa de CD.** Esta esteira publica a imagem no ECR — inclusive em pull request, de propósito, para que o artefato publicado seja o mesmo que os scans auditaram.
+**A etapa de CD.** Esta esteira publica a imagem no ECR apenas no `push` para a `main`. Em pull request ela constrói e escaneia, mas não publica: o `github.sha` de um `pull_request` é o merge efêmero de `refs/pull/N/merge`, que não existe no histórico e nunca chega ao cluster.
 
 Apontar o cluster para uma imagem é outra coisa, e será um workflow separado: ele atualiza a tag em `apps/<serviço>/values.yaml` no repositório GitOps, apenas em push para `main`. Ainda não escrito.

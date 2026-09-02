@@ -176,15 +176,17 @@ O build também é único: o job `image` constrói, escaneia e publica na mesma 
 
 A fronteira está em **publicar a imagem** versus **apontar o cluster para ela**.
 
-| | CI (`go-ci`, `python-ci`) | CD (previsto) |
+| | CI (`go-ci`, `python-ci`) | CD |
 |---|---|---|
 | Roda em | pull request **e** push para `main` | apenas push para `main` |
-| Faz | build, teste, lint, scans, e **publica a imagem no ECR** | atualiza a tag em `apps/<serviço>/values.yaml` no [`togglemaster-gitops`](https://github.com/fiap-tech-challenge-devops/togglemaster-gitops) |
+| Faz | build, teste, lint, scans e imagem — **publica no ECR só no push** | atualiza a tag em `apps/<serviço>/values.yaml` no [`togglemaster-gitops`](https://github.com/fiap-tech-challenge-devops/togglemaster-gitops) |
 | Efeito no cluster | nenhum | o Argo CD detecta o commit e sincroniza |
 
-**O CI publica a imagem também em pull request**, e isso é deliberado: a imagem no ECR é o artefato que os scans auditaram. Construir em PR e publicar só depois do merge significaria publicar um binário diferente do que passou pelo gate — exatamente o problema que a consolidação do job `image` resolveu.
+**Em pull request a imagem é construída e escaneada, mas não publicada.** O `docker push` tem `if: github.event_name == 'push'`.
 
-Publicar cedo não expõe nada: as tags são o SHA do commit e os repositórios são `IMMUTABLE`, então uma imagem de PR não pode sobrescrever nada nem ser confundida com outra. Ela simplesmente existe no registry sem que ninguém aponte para ela.
+O motivo está no `github.sha`. Num evento `pull_request` ele **não** é o commit da branch: é o merge efêmero que o GitHub cria em `refs/pull/N/merge`, que não existe no histórico do repositório e desaparece quando o PR fecha. Uma imagem publicada ali carrega uma tag que não se resolve em nenhum `git log` — e nunca chega ao cluster, porque quem é promovido é a imagem construída no `push` para a `main`.
+
+A propriedade que importa continua valendo: **o artefato escaneado é o publicado**, porque o job `image` constrói, escaneia e empurra na mesma execução, no mesmo runner. O build do PR não participa disso — ele existe para reprovar antes do merge, não para gerar artefato.
 
 Quem decide o que roda é o CD, e só ele — a promoção acontece quando a tag muda no repositório GitOps, nunca por um push no ECR.
 
