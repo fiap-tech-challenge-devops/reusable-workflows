@@ -72,7 +72,9 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          # Fixo: com "latest", uma versão nova traz regras novas e o mesmo
+          # código passa hoje e reprova amanhã, sem ninguém ter mudado nada.
+          version: v2.14.0
 
   Security:
     name: Security Scan (Secrets, SAST & SCA)
