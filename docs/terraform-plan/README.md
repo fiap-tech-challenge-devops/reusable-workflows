@@ -29,6 +29,21 @@ A lista completa está no bloco `on.workflow_call` de [`terraform-plan.yml`](../
 
 Obrigatórios: os inputs `stages` e `state-bucket-prefix`, e o secret `aws-oidc-role-arn`. Todo o resto tem default, e `openai-api-key` é opcional (sem ela, o resumo simplesmente não aparece).
 
+## Variáveis sensíveis
+
+O secret `tf-vars` recebe variáveis do Terraform que não podem viver no repositório, uma por linha:
+
+```
+datadog_api_key=xxxxxxxx
+outra_variavel=valor
+```
+
+Cada linha vira `TF_VAR_<nome>` no ambiente do job, e o valor passa por `::add-mask::` antes — não aparece no log nem se o Terraform o ecoar.
+
+**É o mesmo secret do [`terraform-apply`](../terraform-apply/), e a simetria é o ponto.** Uma variável obrigatória sem valor reprova o `terraform plan` antes de ele produzir qualquer saída: o pull request fica sem plano para revisar, e o resumo por IA não tem o que resumir. Declarar a variável com `default = ""` manteria o plan verde, mas esconderia da revisão o recurso que depende dela — o oposto do que esta esteira existe para fazer.
+
+O valor vale para **todos os stages da matriz**. Não há problema em um stage receber variável que ele não declara: `TF_VAR_` de variável não declarada é ignorado pelo Terraform, ao contrário de `-var`, que reclama.
+
 ## Os stages
 
 O input `stages` é um JSON. Cada entrada precisa de duas chaves:

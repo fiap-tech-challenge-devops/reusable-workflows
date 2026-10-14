@@ -56,6 +56,13 @@ on:
         description: "Chave da OpenAI. Ausente, o resumo simplesmente não aparece."
         required: false
 
+      tf-vars:
+        description: |
+          Variáveis do Terraform que não podem viver no repositório, uma por
+          linha, no formato NOME=valor. Viram TF_VAR_<nome> no ambiente do job.
+          Valem para todos os stages da matriz. Ver docs/terraform-plan/.
+        required: false
+
 permissions:
   id-token: write
   contents: read
@@ -146,6 +153,20 @@ jobs:
             -backend-config="bucket=${{ steps.backend.outputs.bucket }}" \
             -backend-config="region=${{ inputs.aws-region }}" \
             -backend-config="use_lockfile=true"
+
+      # Valores que não podem viver no repositório. O add-mask garante que
+      # não apareçam no log nem se o Terraform os ecoar.
+      - name: Exportar variáveis sensíveis do Terraform
+        env:
+          TF_VARS: ${{ secrets.tf-vars }}
+        run: |
+          if [ -n "$TF_VARS" ]; then
+            printf '%s\n' "$TF_VARS" | while IFS='=' read -r nome valor; do
+              [ -n "$nome" ] || continue
+              echo "::add-mask::$valor"
+              echo "TF_VAR_${nome}=${valor}" >> "$GITHUB_ENV"
+            done
+          fi
 
       - name: Terraform plan
         id: plan

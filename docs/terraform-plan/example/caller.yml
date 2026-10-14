@@ -37,3 +37,4 @@ jobs:
     secrets:
       aws-oidc-role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN_VITAO }}
       openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+      tf-vars: ${{ secrets.TF_VARS_INFRA }}
