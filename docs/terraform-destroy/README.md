@@ -44,6 +44,14 @@ A lista completa está no bloco `on.workflow_call` de [`terraform-destroy.yml`](
 
 Obrigatórios: os inputs `stage` e `state-bucket-prefix`, e o secret `aws-oidc-role-arn`.
 
+## Variáveis sensíveis
+
+O secret `tf-vars` recebe variáveis do Terraform que não podem viver no repositório, uma por linha no formato `NOME=valor`. Cada linha vira `TF_VAR_<nome>`, com `::add-mask::` aplicado antes.
+
+**O destroy também carrega as variáveis**, e isso surpreende: ele precisa resolver a configuração inteira antes de montar o grafo de destruição, mesmo que nenhum valor vá ser usado para criar algo. Uma variável obrigatória sem default reprova o destroy exatamente como reprovaria o plan ou o apply.
+
+Se o seu stage tem variável obrigatória cujo valor vem de fora, as **três** esteiras precisam do secret — `terraform-plan`, `terraform-apply` e esta. Esquecer uma delas só aparece quando aquele caminho é exercitado, e no caso do destroy isso pode ser semanas depois, com o ambiente parando no meio: o stage anterior da cadeia já destruído e este de pé, custando.
+
 ## O gate de aprovação
 
 Aqui, ao contrário do apply, **use o `environment`.** O destroy roda por `workflow_dispatch`: não há pull request, não há revisão e não há plano para ler antes. O environment é a única confirmação humana no caminho.
