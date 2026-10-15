@@ -59,3 +59,6 @@ jobs:
       terraform-version: "1.15.8"
     secrets:
       aws-oidc-role-arn: ${{ secrets.AWS_OIDC_ROLE_ARN_VITAO }}
+      # O destroy também carrega as variáveis. Sem isto, variável
+      # obrigatória sem default reprova e o stage fica de pé.
+      tf-vars: ${{ secrets.TF_VARS_INFRA }}
